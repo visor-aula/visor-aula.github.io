@@ -60,6 +60,10 @@
     background: var(--acento-suave); color: #22345f; font-size: 14.5px;
   }
   .instalar.visible { display: flex; }
+  .sinred { margin: -12px 0 20px; font-size: 13.5px; color: var(--tinta-3); display: none; align-items: center; gap: 7px; }
+  .sinred.visible { display: flex; }
+  .sinred.lista { color: var(--ok); font-weight: 600; }
+  .sinred svg { width: 16px; height: 16px; flex: none; }
   .instalar svg { width: 26px; height: 26px; flex: none; }
   .instalar b { font-weight: 650; }
 
@@ -168,6 +172,7 @@
   </div>
 </header>
 <div class="instalar" id="instalar"></div>
+<div class="sinred" id="sinred" role="status"></div>
 <div class="tarea" id="tarea">
   <div class="fila">
     <div><h3 id="tareaTitulo"></h3><p id="tareaDetalle"></p></div>
@@ -595,14 +600,34 @@
   $("elegirImportar").addEventListener("change", function (e) { var l = Array.prototype.slice.call(e.target.files); e.target.value = ""; if (l.length) importarArchivos(l); });
   $("elegirDirecto").addEventListener("change", function (e) { var f = e.target.files[0]; e.target.value = ""; if (f) elegirDirecto(f); });
 
+  var ua = navigator.userAgent;
+  var esSafariMac = !esApple && /Macintosh/.test(ua) && /Version\/[\d.]+.*Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua);
   var textoInstalar = esApple
     ? ICONOS.compartir + "<div>Para usarla como app: toca <b>Compartir</b> y luego <b>Agregar a inicio</b>. Abre la app desde ese ícono y agrega ahí los libros (Safari y la app guardan por separado).</div>"
+    : esSafariMac
+    ? ICONOS.compartir + "<div>Para usarla como app: en el menú <b>Archivo</b>, elige <b>Agregar al Dock</b>. Abre la app desde el Dock y agrega ahí los libros (Safari y la app guardan por separado).</div>"
     : "";
   if (textoInstalar && !instalada()) { $("instalar").innerHTML = textoInstalar; $("instalar").classList.add("visible"); }
-  $("ayudaInstalar").innerHTML = esApple ? "En iPad y iPhone: <b>Compartir › Agregar a inicio</b> la deja como app, en pantalla completa. Los libros que agregues desde Safari no aparecen en la app instalada (y al revés): agrégalos desde la app." : "";
+  $("ayudaInstalar").innerHTML = esApple || esSafariMac ? (esApple ? "En iPad y iPhone: <b>Compartir › Agregar a inicio</b>" : "En la Mac: <b>Archivo › Agregar al Dock</b>") +
+    " la deja como app. Los libros que agregues desde Safari no aparecen en la app instalada (y al revés): agrégalos desde la app. La primera vez ábrela con internet: cuando diga «Lista para usarse sin internet», ya no lo necesita." : "";
 
+  // ¿Ya guardó su copia para funcionar sin internet? (la primera vez que se abre la guarda; con
+  // internet lento puede tardar). Se avisa para que nadie tenga que adivinar.
+  var MOTOR_WASM = "ruffle/ruffle_web_bg.DCLRGRZR.wasm";   // el mismo que guarda sw.js
+  async function revisarSinInternet() {
+    var e = $("sinred"), listo = false;
+    try { listo = !!navigator.serviceWorker.controller && !!(await caches.match("visor.html")) && !!(await caches.match(MOTOR_WASM)); } catch (x) { }
+    e.classList.add("visible");
+    e.classList.toggle("lista", listo);
+    e.innerHTML = listo
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Lista para usarse sin internet'
+      : (navigator.onLine === false ? "Sin internet: conéctate una vez para que la app se prepare" : "Preparándose para usarse sin internet…");
+    if (!listo) { clearTimeout(revisarSinInternet.t); revisarSinInternet.t = setTimeout(revisarSinInternet, 3000); }
+  }
   if ("serviceWorker" in navigator && window.isSecureContext && !/[?&]sinsw\b/.test(location.search)) {
     navigator.serviceWorker.register("sw.js").catch(function (e) { console.warn("[sw]", e); });
+    navigator.serviceWorker.addEventListener("controllerchange", revisarSinInternet);
+    revisarSinInternet();
   }
   Almacen.limpiar().then(refrescar, refrescar);
 </script>
