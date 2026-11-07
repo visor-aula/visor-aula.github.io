@@ -219,6 +219,7 @@
         d.origen = libro.origen;
         d.lecturas = cuenta.peticiones + " archivos, " + Math.round(cuenta.bytes / 1048576) + " MB" + (cuenta.faltan ? ", " + cuenta.faltan + " no encontrados (" + cuenta.faltantes.join(" ") + ")" : "");
         d.sesiones = soPropio ? "IndexedDB" : "localStorage del navegador";
+        d.memoria = memoriaMB() + " MB de " + memoria.limite + " (" + memoria.equipo + (memoria.aprendido ? ", aprendido" : "") + ")";
         json = JSON.stringify(d);
       } catch (e) { }
       host.guardarDiagnostico(json);
@@ -226,6 +227,30 @@
     guardarArchivo: guardarArchivo,
     pantallaCompleta: function (si) { try { host.pantallaCompleta(si); } catch (e) { } }
   };
+
+  // ---------- Memoria (web 0.3) ----------
+  // Ruffle nunca devuelve memoria (WebAssembly solo crece) y el libro no suelta páginas ni ejercicios:
+  // en una sesión larga, Safari llega a recargar la app ("was using significant memory"). Se vigila
+  // Ruffle + memoria gráfica estimada contra un límite por tipo de equipo (Safari no dice cuánta
+  // memoria tiene el equipo); si Safari la recarga, la biblioteca aprende ese nivel (index.html).
+  var memoria = host.memoria || { limite: 1800, equipo: "otro" };
+  function memoriaMB() { return wasmMB() + (window.__memGPU ? Math.round(window.__memGPU.actual / 1048576) : 0); }
+  window.__memoriaLibro = function () { return { mb: memoriaMB(), limite: memoria.limite, equipo: memoria.equipo }; };
+  function vigilarMemoria() {
+    var avisoMem = null, cerradoA = 0;
+    setInterval(function () {
+      var mb = memoriaMB();
+      host.anotarMemoria(mb);
+      if (mb < 0.8 * memoria.limite || avisoMem || mb < cerradoA + 150) return;
+      avisoMem = document.createElement("div");
+      avisoMem.id = "avisoMemoria";
+      avisoMem.innerHTML = '<span>El libro ya usa mucha memoria. En una pausa, ciérralo y vuelve a abrirlo para que siga fluido.</span>' +
+        '<button type="button" class="reabrir">Volver a abrir</button><button type="button" class="cerrar" aria-label="Cerrar aviso">×</button>';
+      avisoMem.querySelector(".reabrir").addEventListener("click", function () { host.reabrir(); });
+      avisoMem.querySelector(".cerrar").addEventListener("click", function () { cerradoA = memoriaMB(); avisoMem.remove(); avisoMem = null; });
+      document.body.appendChild(avisoMem);
+    }, 5000);
+  }
 
   // ---------- Pantalla ----------
   // iPhone/iPad: que el sonido del libro (Web Audio) se oiga aunque el iPhone esté en silencio,
@@ -246,6 +271,9 @@
       "#girar{position:fixed;inset:0;z-index:30;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:rgba(20,18,15,.82);color:#fff;font:600 18px/1.35 system-ui,-apple-system,sans-serif;text-align:center}" +
       "#girar svg{width:64px;height:64px}#girar small{font-weight:400;font-size:14px;opacity:.75}" +
       "@media (orientation:portrait) and (pointer:coarse){#girar:not(.cerrado){display:flex}}" +
+      "#avisoMemoria{position:fixed;z-index:26;left:50%;top:calc(8px + env(safe-area-inset-top));transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:min(92vw,640px);padding:8px 8px 8px 16px;border-radius:14px;background:rgba(28,24,20,.9);color:#fff;font:500 14px/1.35 system-ui,-apple-system,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.3)}" +
+      "#avisoMemoria button{flex:none;border:0;border-radius:999px;font:600 13.5px system-ui,-apple-system,sans-serif;cursor:pointer}" +
+      "#avisoMemoria .reabrir{padding:8px 14px;background:#fff;color:#1f1b16}#avisoMemoria .cerrar{width:32px;height:32px;background:transparent;color:#fff;font-size:20px}" +
       "#medidor{position:fixed;left:calc(4px + env(safe-area-inset-left));top:calc(4px + env(safe-area-inset-top));z-index:25;padding:3px 7px;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;font:600 11px/1.3 ui-monospace,Menlo,monospace;pointer-events:none;white-space:pre}";
     document.head.appendChild(estilo);
     var g = document.createElement("div");
@@ -255,6 +283,8 @@
     g.addEventListener("click", function () { g.classList.add("cerrado"); });
     document.body.appendChild(g);
 
+    vigilarMemoria();
+
     if (host.leerAjuste("medidor") === "1") {
       var m = document.createElement("div");
       m.id = "medidor";
@@ -262,7 +292,7 @@
       var pintar = function () {
         var gpu = window.__memGPU ? Math.round(window.__memGPU.actual / 1048576) : 0;
         var pico = window.__memGPU ? Math.round(window.__memGPU.pico / 1048576) : 0;
-        m.textContent = "Ruffle " + wasmMB() + " MB (pico " + Math.round(wasm.pico / 1048576) + ")\nGráfica ≈" + gpu + " MB (pico " + pico + ")\n" + (window.__motor || "…") + " · " + cuenta.peticiones + " archivos";
+        m.textContent = "Ruffle " + wasmMB() + " MB (pico " + Math.round(wasm.pico / 1048576) + ")\nGráfica ≈" + gpu + " MB (pico " + pico + ")\n" + (window.__motor || "…") + " · " + cuenta.peticiones + " archivos\nLímite " + memoria.limite + " MB (" + memoria.equipo + (memoria.aprendido ? ", aprendido" : "") + ")";
       };
       pintar();
       setInterval(pintar, 1000);

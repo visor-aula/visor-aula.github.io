@@ -1110,6 +1110,87 @@
         window.addEventListener(tipo, function (e) { if (pan && e.pointerId === pan.id && !pan.propio) pan = null; });
       });
 
+      // ---------- Trackpad y teclado (Mac, web 0.3) ----------
+      // Lo mismo que con el dedo, con los gestos de la Mac:
+      //  - pellizcar en el trackpad: acercar/alejar el ejercicio ampliado (Safari: gesturechange con
+      //    e.scale; Chrome: rueda con ctrlKey), con los botones + / - del libro (zoomPaso);
+      //  - deslizar con dos dedos (rueda) sobre el ejercicio ampliado: mover su contenido (panZoom);
+      //  - deslizar con dos dedos a los lados sin ejercicio abierto: cambiar de página (pasarPagina);
+      //  - flechas y Re Pág / Av Pág (lo que mandan los presentadores inalámbricos): cambiar de página.
+      // En iPad/iPhone el pellizco ya lo atiende la parte de los dedos (ahí también llegan
+      // gesturechange, por eso aquí solo cuenta si el equipo no es táctil).
+      var esTactil = (navigator.maxTouchPoints || 0) > 0;
+      function puntoEscenario(x, y) { var l = lienzoDe(null); if (!l) return null; var g = geometria(l); return { x: (x - g.ox) / g.s, y: (y - g.oy) / g.s, g: g }; }
+      function pasoZoom(dir, x, y) {
+        var p = puntoEscenario(x, y); if (!p) return;
+        var z = -1;
+        try { z = Number(player.zoomPaso(dir, p.x, p.y)); } catch (err) { z = -1; }
+        if (z >= 0) toques.pasosZoom++;
+      }
+      var gesto = null;
+      document.addEventListener("gesturestart", function (e) {
+        if (esTactil) return;
+        var est = estadoLibro(false);
+        gesto = est && est[0] ? { base: 1, x: e.clientX, y: e.clientY } : null;
+      }, true);
+      document.addEventListener("gesturechange", function (e) {
+        if (esTactil || !gesto) return;
+        var r = e.scale / gesto.base;
+        if (r > 1.25 || r < 0.8) { pasoZoom(r > 1 ? 1 : -1, gesto.x, gesto.y); gesto.base = e.scale; toques.pellizcos++; }
+      }, true);
+      document.addEventListener("gestureend", function () { gesto = null; }, true);
+      var rueda = null, ctrlAcum = 0, ctrlUltimo = 0;
+      sr.addEventListener("wheel", function (e) {
+        // Hora en que se generó el evento (si el equipo va lento, se atienden tarde pero en orden)
+        var ahora = e.timeStamp || performance.now();
+        if (e.ctrlKey) {   // pellizco del trackpad en Chrome (y Ctrl + rueda del ratón)
+          e.preventDefault();
+          var est0 = estadoLibro(false);
+          if (!est0 || !est0[0]) return;
+          if (ahora - ctrlUltimo > 400) ctrlAcum = 0;
+          ctrlUltimo = ahora; ctrlAcum += e.deltaY;
+          if (Math.abs(ctrlAcum) > 60) { pasoZoom(ctrlAcum < 0 ? 1 : -1, e.clientX, e.clientY); ctrlAcum = 0; }
+          return;
+        }
+        var dx = e.deltaX, dy = e.deltaY;
+        if (e.deltaMode === 1) { dx *= 16; dy *= 16; }
+        if (!rueda || ahora - rueda.t > 300) {
+          // Gesto nuevo: ¿hay ejercicio ampliado con desplazamiento bajo el puntero?
+          var p = puntoEscenario(e.clientX, e.clientY);
+          rueda = { t: ahora, ax: 0, ay: 0, tipo: null, x: e.clientX, y: e.clientY, g: p && p.g, hecho: false };
+          var r = -1;
+          if (p) { try { r = Number(player.panZoom(0, p.x, p.y)); } catch (err) { r = -1; } }
+          if (r >= 0) { rueda.tipo = "zoom"; toques.pan++; }
+          else {
+            var est = estadoLibro(true);
+            if (est && !est[0] && !(est[1] > 0) && est[2]) rueda.tipo = "pagina";
+          }
+        }
+        rueda.t = ahora;
+        if (!rueda.tipo) return;
+        e.preventDefault();
+        rueda.ax += dx; rueda.ay += dy;
+        if (rueda.tipo === "zoom") {
+          var g = rueda.g;
+          try { player.panZoom(2, (rueda.x - rueda.ax - g.ox) / g.s, (rueda.y - rueda.ay - g.oy) / g.s); toques.panMovs++; } catch (err) { }
+        } else if (!rueda.hecho && Math.abs(rueda.ax) > 120 && Math.abs(rueda.ax) > 1.5 * Math.abs(rueda.ay)) {
+          // Una vuelta por gesto (la inercia del trackpad sigue mandando movimiento)
+          rueda.hecho = true;
+          var ok = 0;
+          try { ok = Number(player.pasarPagina(rueda.ax > 0 ? 1 : -1)); } catch (err) { ok = 0; }
+          if (ok) toques.paginas++;
+        }
+      }, { capture: true, passive: false });
+      window.addEventListener("keydown", function (e) {
+        var dir = { ArrowRight: 1, PageDown: 1, ArrowLeft: -1, PageUp: -1 }[e.key];
+        if (!dir || e.altKey || e.ctrlKey || e.metaKey) return;
+        var est = estadoLibro(true);
+        if (!est || est[0] || est[1] > 0 || !est[2]) return;   // con ejercicio abierto, herramienta o sin botones: al libro
+        var ok = 0;
+        try { ok = Number(player.pasarPagina(dir)); } catch (err) { ok = 0; }
+        if (ok) { toques.paginas++; e.preventDefault(); e.stopImmediatePropagation(); }
+      }, true);
+
       var aviso = sr.getElementById("hardware-acceleration-modal");
       if (aviso && window.MutationObserver) {
         new MutationObserver(function () {

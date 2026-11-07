@@ -228,7 +228,7 @@
 <script src="js/almacen.js"></script>
 <script>
   "use strict";
-  var VERSION = "web 0.2 (prueba de concepto)";
+  var VERSION = "web 0.3 (prueba de concepto)";
   var ICONOS = {
     mas: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
     abrir: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>',
@@ -400,6 +400,35 @@
   }
   $("tareaCancelar").addEventListener("click", function () { if (importando && importando.al) importando.al(); });
 
+  // ---------- Memoria por equipo (web 0.3) ----------
+  // Safari no dice cuánta memoria tiene el equipo: se empieza con un límite por tipo (MB de Ruffle +
+  // memoria gráfica estimada; la Mac de Karen recargó la app cerca de 2300) y, si Safari recarga la
+  // app con un libro abierto, se aprende ese nivel para este equipo.
+  var equipo = /iPhone|iPod/.test(navigator.userAgent) ? "iphone" : esApple ? "ipad" : /Macintosh/.test(navigator.userAgent) ? "mac" : "otro";
+  var LIMITES = { iphone: 1000, ipad: 1500, mac: 2100, otro: 1800 };
+  function datosMemoria() {
+    var aprendido = parseInt(Almacen.leerAjuste("memoria_limite") || "0", 10) || 0;
+    return { equipo: equipo, limite: aprendido ? Math.min(aprendido, LIMITES[equipo]) : LIMITES[equipo], aprendido: !!aprendido };
+  }
+  var anotacion = 0;
+  function anotarMemoria(mb) {
+    var ahora = Date.now();
+    if (ahora - anotacion < 4000) return;
+    anotacion = ahora;
+    Almacen.guardarAjuste("memoria_ultima", JSON.stringify({ mb: mb, t: ahora }));
+  }
+  function revisarCierreInesperado() {
+    if (Almacen.leerAjuste("libro_abierto") !== "1") return;
+    Almacen.guardarAjuste("libro_abierto", "0");
+    var u = null;
+    try { u = JSON.parse(Almacen.leerAjuste("memoria_ultima") || "null"); } catch (e) { }
+    // Si usaba poca memoria, lo más probable es que se cerró la app a mano con el libro abierto
+    if (!u || !(u.mb >= 0.5 * LIMITES[equipo]) || Date.now() - u.t > 3600000) return;
+    var nuevo = Math.round(u.mb * 0.95), previo = datosMemoria().limite;
+    if (nuevo < previo) Almacen.guardarAjuste("memoria_limite", String(nuevo));
+    setTimeout(function () { avisar("El libro se cerró porque el equipo se quedó sin memoria (usaba unos " + u.mb + " MB). La próxima vez la app avisará antes."); }, 600);
+  }
+
   // ---------- Abrir un libro ----------
   var capa = $("capaLibro"), wake = null, entreAPantallaCompleta = false;
   window.LibrosWeb = {
@@ -413,6 +442,14 @@
     libroListo: function () { },
     guardarArchivo: guardarArchivo,
     cerrar: cerrarLibro,
+    anotarMemoria: anotarMemoria,
+    reabrir: function () {
+      var a = LibrosWeb.libroAbierto;
+      if (!a) return;
+      var datos = { id: a.id, titulo: a.titulo, etiqueta: a.etiqueta, color: a.color, portada: a.portada }, archivo = a.archivo, origen = a.origen;
+      cerrarLibro();
+      setTimeout(function () { abrirArchivo(datos, archivo, origen).catch(function (e) { avisar("No se pudo volver a abrir: " + e.message, true); }); }, 400);
+    },
     pantallaCompleta: function (si) {
       var d = document.documentElement, dentro = document.fullscreenElement || document.webkitFullscreenElement;
       try {
@@ -440,9 +477,11 @@
     var ses = await Almacen.sesiones(datos.id);
     var portadaUrl = datos.portada ? URL.createObjectURL(datos.portada) : null;
     LibrosWeb.libroAbierto = {
-      id: datos.id, titulo: datos.titulo, etiqueta: datos.etiqueta, color: datos.color,
+      id: datos.id, titulo: datos.titulo, etiqueta: datos.etiqueta, color: datos.color, portada: datos.portada,
       archivo: archivo, entradas: z.entradas, sesiones: ses, portadaUrl: portadaUrl, origen: origen
     };
+    LibrosWeb.memoria = datosMemoria();
+    Almacen.guardarAjuste("libro_abierto", "1");
     capa.style.setProperty("--marco", datos.color || "#ece8e2");
     capa.innerHTML = "";
     var f = el("iframe", { src: "visor.html?libro=" + encodeURIComponent(datos.id), allow: "fullscreen; autoplay", "aria-label": datos.titulo });   // sin title: Safari lo mostraba flotando sobre el libro
@@ -457,6 +496,7 @@
 
   function cerrarLibro() {
     var a = LibrosWeb.libroAbierto;
+    Almacen.guardarAjuste("libro_abierto", "0");
     capa.classList.remove("visible");
     capa.innerHTML = "";          // quitar el iframe suelta Ruffle, su memoria y su WebGL
     document.body.classList.remove("leyendo");
@@ -629,6 +669,9 @@
     navigator.serviceWorker.addEventListener("controllerchange", revisarSinInternet);
     revisarSinInternet();
   }
+  revisarCierreInesperado();
+  // Al salir de la app normalmente hay pagehide; cuando Safari la recarga por memoria, no
+  window.addEventListener("pagehide", function () { Almacen.guardarAjuste("libro_abierto", "0"); });
   Almacen.limpiar().then(refrescar, refrescar);
 </script>
 </body>
