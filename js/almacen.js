@@ -219,13 +219,21 @@
 
   // Se escriben en orden y sin perder la última: si llegan varias de la misma clave mientras una se
   // escribe, solo se guarda la más reciente.
-  var pendientes = new Map(), escribiendo = false;
+  var pendientes = new Map(), escribiendo = false, alTerminar = [];
   function guardarSesion(id, clave, valor) {
     pendientes.set(id + "\u0000" + clave, { libro: id, clave: clave, valor: valor });
     if (!escribiendo) vaciar();
   }
+  // Para volver a abrir un libro (renovación): leer las sesiones hasta que lo último ya esté guardado
+  function esperarEscrituras(maxMs) {
+    if (!escribiendo && !pendientes.size) return Promise.resolve(true);
+    return new Promise(function (listo) {
+      var t = setTimeout(function () { listo(false); }, maxMs || 3000);
+      alTerminar.push(function () { clearTimeout(t); listo(true); });
+    });
+  }
   function vaciar() {
-    if (!pendientes.size) { escribiendo = false; return; }
+    if (!pendientes.size) { escribiendo = false; alTerminar.splice(0).forEach(function (f) { f(); }); return; }
     escribiendo = true;
     var lote = Array.from(pendientes.values());
     pendientes.clear();
@@ -263,7 +271,7 @@
   global.Almacen = {
     soporte: soporte, listar: listarMeta, espacio: espacio, revisar: revisar, importar: importar, borrar: borrar,
     archivoDe: archivoDe, limpiar: limpiar, portadaDe: portadaDe,
-    sesiones: sesiones, guardarSesion: guardarSesion, exportarSesiones: exportarSesiones, importarSesiones: importarSesiones,
+    sesiones: sesiones, guardarSesion: guardarSesion, esperarEscrituras: esperarEscrituras, exportarSesiones: exportarSesiones, importarSesiones: importarSesiones,
     leerAjuste: leerAjuste, guardarAjuste: guardarAjuste, guardarDiagnostico: guardarDiagnostico, diagnosticos: diagnosticos
   };
 })(typeof self !== "undefined" ? self : this);

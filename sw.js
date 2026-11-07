@@ -5,7 +5,7 @@
 //  - Motor de Ruffle (.wasm, con huella en el nombre): primero la copia.
 // Al publicar una versión nueva, cambia VERSION para borrar las copias viejas.
 "use strict";
-var VERSION = "librospb-web-0.3.0";
+var VERSION = "librospb-web-0.4.0";
 var NUCLEO = [
   "./", "index.html", "visor.html", "manifest.webmanifest",
   "js/zip.js", "js/metadatos.js", "js/almacen.js", "js/escritor.js", "js/parches.js", "js/parches-datos.js", "js/puente-web.js",

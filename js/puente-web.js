@@ -198,13 +198,14 @@
     datosLibro: function () {
       return JSON.stringify({
         id: libro.id, titulo: libro.titulo, etiqueta: libro.etiqueta, color: libro.color || null,
-        portada: libro.portadaUrl || null, apertura: apertura, calentado: false, precarga: false
+        portada: libro.portadaUrl || null, apertura: apertura, calentado: false, precarga: false,
+        reanudar: libro.reanudar || null, renovacion: libro.renovacion || null, renovaciones: libro.renovaciones || 0
       });
     },
     cerrarLibro: function () { setTimeout(function () { host.cerrar(); }, 0); },
     abrirExterno: function (url) { try { abrirOriginal(url, "_blank", "noopener"); } catch (e) { } },
     existe: function (ruta) { return !!zip.buscar(ruta); },
-    libroListo: function () { try { host.libroListo(); } catch (e) { } },
+    libroListo: function () { renov.base = memoriaMB(); renov.listoEn = Date.now(); try { host.libroListo(); } catch (e) { } },
     avisosGL: function () { return ""; },
     precargaLista: function () { },
     leerAjuste: function (k) { return host.leerAjuste(k); },
@@ -220,6 +221,7 @@
         d.lecturas = cuenta.peticiones + " archivos, " + Math.round(cuenta.bytes / 1048576) + " MB" + (cuenta.faltan ? ", " + cuenta.faltan + " no encontrados (" + cuenta.faltantes.join(" ") + ")" : "");
         d.sesiones = soPropio ? "IndexedDB" : "localStorage del navegador";
         d.memoria = memoriaMB() + " MB de " + memoria.limite + " (" + memoria.equipo + (memoria.aprendido ? ", aprendido" : "") + ")";
+        d.liberar_memoria = !renovarSola ? "a mano" : "sola" + (libro.renovaciones ? ", " + libro.renovaciones + " vez/veces en esta lectura" : "") + (renov.motivo ? ", esperando: " + renov.motivo : "");
         json = JSON.stringify(d);
       } catch (e) { }
       host.guardarDiagnostico(json);
@@ -235,21 +237,82 @@
   // memoria tiene el equipo); si Safari la recarga, la biblioteca aprende ese nivel (index.html).
   var memoria = host.memoria || { limite: 1800, equipo: "otro" };
   function memoriaMB() { return wasmMB() + (window.__memGPU ? Math.round(window.__memGPU.actual / 1048576) : 0); }
-  window.__memoriaLibro = function () { return { mb: memoriaMB(), limite: memoria.limite, equipo: memoria.equipo }; };
+  window.__memoriaLibro = function () { return { mb: memoriaMB(), limite: memoria.limite, equipo: memoria.equipo, base: renov.base, esperando: renov.motivo }; };
+
+  // ---------- Liberar memoria sola (web 0.4) ----------
+  // Cuando el libro ya usa el 85 % del límite y creció al menos un 20 % del límite desde que se abrió
+  // (base = lo más alto de los primeros 30 s ya abierto: la página que se ve, su WebGL y, tras una
+  // renovación, lo que se volvió a cargar; así no se renueva una y otra vez), en el siguiente
+  // momento tranquilo (sin tocar la pantalla 4 s, sin ejercicio ampliado, herramienta,
+  // video ni audio, con la doble página quieta: visor.html, __momentoTranquilo) el libro se cierra y
+  // se vuelve a abrir, y el visor regresa solo a la misma sesión, libro y página (visor.html,
+  // "Renovación"). Se apaga en la ayuda de la biblioteca (ajuste "renovar" = "0"). Si no llega un
+  // momento tranquilo, al 93 % sale el aviso de siempre; su botón también regresa a la página.
+  var renovarSola = host.leerAjuste("renovar") !== "0";
+  var renov = { base: null, listoEn: 0, motivo: "", enCurso: false };
+  window.__renovacion = renov;
+  function historialLimpio(l) {
+    var r = [];
+    if (!l || !l.length) return r;
+    for (var i = Math.max(0, l.length - 60); i < l.length; i++) {
+      var x = l[i];
+      if (x && x.length >= 2 && Number(x[0]) >= 1 && isFinite(Number(x[1]))) r.push([Number(x[0]), Number(x[1])]);
+    }
+    return r;
+  }
+  // Lo que hace falta para volver: sesión, libro, página e historial (rutina estadoRenovar de
+  // parche_barras.py). Con 1, el libro antes guarda los trazos del lápiz que tenga pendientes.
+  function estadoParaVolver() {
+    var p = document.querySelector("ruffle-player"), e = null;
+    try { e = p && typeof p.estadoRenovar === "function" ? p.estadoRenovar(1) : null; } catch (err) { e = null; }
+    if (!e || typeof e[0] !== "string" || !e[0] || e[0] === "undefined") return { r: null, guardo: false };
+    var r = { sesion: e[0], libro: 0, pagina: 0, menos: [], mas: [] };
+    var lib = Number(e[3]), pag = Number(e[4]);
+    // Dentro de un libro (no en el menú): el cuadro del libro es fInicio + libro
+    if (lib >= 1 && pag >= 1 && Number(e[1]) === lib + Number(e[2])) {
+      r.libro = lib; r.pagina = pag;
+      r.menos = historialLimpio(e[5]); r.mas = historialLimpio(e[6]);
+      var u = r.menos[r.menos.length - 1];
+      if (!u || u[0] !== lib || u[1] !== pag) r.menos.push([lib, pag]);
+    }
+    return { r: r, guardo: !!e[8] };
+  }
+  function renovar(motivo) {
+    if (renov.enCurso) return;
+    renov.enCurso = true;
+    var est = estadoParaVolver();
+    var info = { motivo: motivo, mb: memoriaMB(), n: (libro.renovaciones || 0) + 1, pagina: est.r ? est.r.pagina : 0 };
+    // Si el libro acaba de guardar trazos, se le da un momento para que lleguen a la biblioteca
+    setTimeout(function () { host.reabrir({ reanudar: est.r, renovacion: info }); }, est.guardo ? 700 : 150);
+  }
+  window.__renovar = renovar;
+
   function vigilarMemoria() {
     var avisoMem = null, cerradoA = 0;
     setInterval(function () {
       var mb = memoriaMB();
       host.anotarMemoria(mb);
-      if (mb < 0.8 * memoria.limite || avisoMem || mb < cerradoA + 150) return;
+      if (renov.enCurso) return;
+      var lim = memoria.limite, asentado = renov.base !== null && Date.now() - renov.listoEn > 30000;
+      if (renov.base !== null && !asentado) renov.base = Math.max(renov.base, mb);
+      if (renovarSola && asentado && mb >= 0.85 * lim && mb - renov.base >= 0.2 * lim) {
+        var m = typeof window.__momentoTranquilo === "function" ? window.__momentoTranquilo(4000) : "sin visor";
+        renov.motivo = m;
+        if (m === "") {
+          if (avisoMem) { avisoMem.remove(); avisoMem = null; }
+          renovar("sola");
+          return;
+        }
+      } else renov.motivo = "";
+      if (mb < (renovarSola ? 0.93 : 0.8) * lim || avisoMem || mb < cerradoA + 150) return;
       avisoMem = document.createElement("div");
       avisoMem.id = "avisoMemoria";
-      avisoMem.innerHTML = '<span>El libro ya usa mucha memoria. En una pausa, ciérralo y vuelve a abrirlo para que siga fluido.</span>' +
+      avisoMem.innerHTML = '<span>El libro ya usa mucha memoria. En una pausa, vuelve a abrirlo para que siga fluido (regresa a esta página).</span>' +
         '<button type="button" class="reabrir">Volver a abrir</button><button type="button" class="cerrar" aria-label="Cerrar aviso">×</button>';
-      avisoMem.querySelector(".reabrir").addEventListener("click", function () { host.reabrir(); });
+      avisoMem.querySelector(".reabrir").addEventListener("click", function () { renovar("a mano"); });
       avisoMem.querySelector(".cerrar").addEventListener("click", function () { cerradoA = memoriaMB(); avisoMem.remove(); avisoMem = null; });
       document.body.appendChild(avisoMem);
-    }, 5000);
+    }, 1000);
   }
 
   // ---------- Pantalla ----------

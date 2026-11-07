@@ -211,6 +211,7 @@
         <option value="webgl">Siempre WebGL</option>
       </select>
     </label>
+    <label><input type="checkbox" id="renovar"> Liberar memoria sola: cuando el libro ya usa mucha, en una pausa se vuelve a abrir y regresa a la misma página</label>
     <label><input type="checkbox" id="medidor"> Mostrar medidor de memoria sobre el libro (para pruebas)</label>
     <p style="font-size:13.5px">Últimas aperturas (la más reciente arriba):</p>
     <div id="tecnico"></div>
@@ -228,7 +229,7 @@
 <script src="js/almacen.js"></script>
 <script>
   "use strict";
-  var VERSION = "web 0.3 (prueba de concepto)";
+  var VERSION = "web 0.4 (prueba de concepto)";
   var ICONOS = {
     mas: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
     abrir: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>',
@@ -443,12 +444,20 @@
     guardarArchivo: guardarArchivo,
     cerrar: cerrarLibro,
     anotarMemoria: anotarMemoria,
-    reabrir: function () {
+    // Cierra el libro y lo vuelve a abrir (suelta toda la memoria de Ruffle). op.reanudar = adónde
+    // regresar (sesión, libro, página, historial; lo arma js/puente-web.js), op.renovacion = datos
+    // para los datos técnicos. Mientras tanto se quedan la capa del libro, la pantalla completa y la
+    // pantalla encendida.
+    reabrir: function (op) {
       var a = LibrosWeb.libroAbierto;
       if (!a) return;
+      op = op || {};
       var datos = { id: a.id, titulo: a.titulo, etiqueta: a.etiqueta, color: a.color, portada: a.portada }, archivo = a.archivo, origen = a.origen;
-      cerrarLibro();
-      setTimeout(function () { abrirArchivo(datos, archivo, origen).catch(function (e) { avisar("No se pudo volver a abrir: " + e.message, true); }); }, 400);
+      var extra = { reanudar: op.reanudar || null, renovacion: op.renovacion || null, renovaciones: (a.renovaciones || 0) + (op.renovacion ? 1 : 0) };
+      cerrarLibro(true);
+      setTimeout(function () {
+        abrirArchivo(datos, archivo, origen, extra).catch(function (e) { cerrarLibro(); avisar("No se pudo volver a abrir: " + e.message, true); });
+      }, 600);
     },
     pantallaCompleta: function (si) {
       var d = document.documentElement, dentro = document.fullscreenElement || document.webkitFullscreenElement;
@@ -472,13 +481,17 @@
     } catch (e) { entreAPantallaCompleta = false; }
   }
 
-  async function abrirArchivo(datos, archivo, origen) {
+  async function abrirArchivo(datos, archivo, origen, extra) {
+    extra = extra || {};
     var z = await ZipLibro.abrir(archivo);
+    // Al volver a abrir, lo último que guardó el libro puede estar escribiéndose todavía
+    await Almacen.esperarEscrituras(3000);
     var ses = await Almacen.sesiones(datos.id);
     var portadaUrl = datos.portada ? URL.createObjectURL(datos.portada) : null;
     LibrosWeb.libroAbierto = {
       id: datos.id, titulo: datos.titulo, etiqueta: datos.etiqueta, color: datos.color, portada: datos.portada,
-      archivo: archivo, entradas: z.entradas, sesiones: ses, portadaUrl: portadaUrl, origen: origen
+      archivo: archivo, entradas: z.entradas, sesiones: ses, portadaUrl: portadaUrl, origen: origen,
+      reanudar: extra.reanudar || null, renovacion: extra.renovacion || null, renovaciones: extra.renovaciones || 0
     };
     LibrosWeb.memoria = datosMemoria();
     Almacen.guardarAjuste("libro_abierto", "1");
@@ -491,17 +504,22 @@
     capa.appendChild(f);
     capa.classList.add("visible");
     document.body.classList.add("leyendo");
-    try { if (navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); } catch (e) { wake = null; }
+    try { if (navigator.wakeLock && (!wake || wake.released)) wake = await navigator.wakeLock.request("screen"); } catch (e) { wake = null; }
   }
 
-  function cerrarLibro() {
+  // paraReabrir: el libro se vuelve a abrir enseguida (renovación); se quedan la capa con el color del
+  // libro (no se asoma la biblioteca), la pantalla completa y la pantalla encendida.
+  function cerrarLibro(paraReabrir) {
     var a = LibrosWeb.libroAbierto;
     Almacen.guardarAjuste("libro_abierto", "0");
-    capa.classList.remove("visible");
+    // El WebGL del libro se suelta de inmediato (sin esperar a que el navegador limpie el marco)
+    try { var marco = capa.querySelector("iframe"); if (marco && marco.contentWindow && marco.contentWindow.__liberar) marco.contentWindow.__liberar(); } catch (e) { }
     capa.innerHTML = "";          // quitar el iframe suelta Ruffle, su memoria y su WebGL
-    document.body.classList.remove("leyendo");
     if (a && a.portadaUrl) URL.revokeObjectURL(a.portadaUrl);
     LibrosWeb.libroAbierto = null;
+    if (paraReabrir === true) return;
+    capa.classList.remove("visible");
+    document.body.classList.remove("leyendo");
     try { if (wake) wake.release(); } catch (e) { }
     wake = null;
     if (entreAPantallaCompleta) {
@@ -608,6 +626,7 @@
     });
     $("dibujo").value = Almacen.leerAjuste("dibujo") || "auto";
     $("medidor").checked = Almacen.leerAjuste("medidor") === "1";
+    $("renovar").checked = Almacen.leerAjuste("renovar") !== "0";
   }
   $("verAyuda").addEventListener("click", function () { pintarTecnico(); $("ayuda").classList.add("visible"); });
   $("cerrarAyuda").addEventListener("click", function () { $("ayuda").classList.remove("visible"); });
@@ -616,6 +635,7 @@
     if (this.value !== "canvas") Almacen.guardarAjuste("webgl_perdidas", "0");
   });
   $("medidor").addEventListener("change", function () { Almacen.guardarAjuste("medidor", this.checked ? "1" : "0"); });
+  $("renovar").addEventListener("change", function () { Almacen.guardarAjuste("renovar", this.checked ? "1" : "0"); });
   $("copiarTecnico").addEventListener("click", function () {
     var txt = $("equipo").textContent + "\n\n" + Array.prototype.map.call($("tecnico").querySelectorAll("pre"), function (p) { return p.textContent; }).join("\n\n");
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { avisar("Datos técnicos copiados."); }, function () { avisar("No se pudo copiar; selecciónalos a mano.", true); });

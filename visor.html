@@ -105,7 +105,12 @@
 
   if (datos.color) document.documentElement.style.setProperty("--marco", datos.color);
   document.title = datos.titulo || "Libro";
-  document.getElementById("titulo").textContent = datos.precarga ? "Preparando el libro…" : (datos.titulo ? "Abriendo " + datos.titulo + "…" : "Abriendo…");
+  // Versión web: el libro se volvió a abrir para liberar memoria y regresa solo a la misma página
+  // (ver "Renovación" más abajo y js/puente-web.js)
+  var reanudar = datos.reanudar && typeof datos.reanudar.sesion === "string" && datos.reanudar.sesion ? datos.reanudar : null;
+  document.getElementById("titulo").textContent = datos.precarga ? "Preparando el libro…" :
+    reanudar ? "Liberando memoria… volviendo a " + (reanudar.libro >= 1 ? "la página " + reanudar.pagina : "tu sesión") :
+    (datos.titulo ? "Abriendo " + datos.titulo + "…" : "Abriendo…");
   if (datos.portada) {
     var img = document.getElementById("portada");
     img.onload = function () { img.hidden = false; };
@@ -633,10 +638,11 @@
   }
 
   // Si de plano no hubo WebGL y se usa canvas, se avisa discretamente que la imagen va en modo básico.
-  function avisarModoBasico() {
+  function avisarModoBasico() { avisoBreve("Imagen en modo básico. Para recuperar la calidad, cierra el libro y vuelve a abrirlo en un momento."); }
+  function avisoBreve(texto) {
     var a = document.createElement("div");
     a.className = "avisoBasico";
-    a.textContent = "Imagen en modo básico. Para recuperar la calidad, cierra el libro y vuelve a abrirlo en un momento.";
+    a.textContent = texto;
     document.body.appendChild(a);
     setTimeout(function () { a.classList.add("fuera"); }, 9000);
     setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 10000);
@@ -745,6 +751,7 @@
         perdidas_webgl: motorInfo.perdidas,
         errores: motorInfo.errores.join(" | "),
         apertura_oculta: datos.info_precarga || "",
+        renovacion: datos.renovacion ? "#" + datos.renovacion.n + " (" + datos.renovacion.motivo + ", tenía " + datos.renovacion.mb + " MB): " + (infoRenovacion || "en curso") : "",
         sesion: sesion,
         toques: "abajo " + toques.abajo + ", movidos " + toques.movs + " (+" + toques.movs0 + " sin botón), touchmove " + toques.tmovs + ", repuestos " + toques.puestos +
           ", arriba " + toques.arriba + ", cancelados " + toques.cancel + ", aviso de paso " + toques.hover + ", páginas con el dedo " + toques.paginas + (toques.pagLibro ? " (del libro " + toques.pagLibro + ")" : "") + ", pellizcos " + toques.pellizcos + " (pasos de zoom " + toques.pasosZoom + "), arrastres del contenido " + toques.pan + " (movidas " + toques.panMovs + ", con lápiz " + toques.panHerr + ", del libro " + toques.panLibro + "), barras " + toques.barras + " (directas " + (toques.directo || 0) + ", movidas " + (toques.movsBarra || 0) + ", vistas " + (toques.vistas || 0) + ", rutina " + (toques.rutina || (function () { try { var p = document.querySelector("ruffle-player"); return p && p.barrasEstado ? JSON.stringify(p.barrasEstado()) : "no"; } catch (e) { return "error"; } })()) + "), presión " + toques.presion.join("/") + (toques.otro ? ", fuera del lienzo: " + toques.otro : ""),
@@ -764,7 +771,7 @@
   }
 
   var carga = document.getElementById("carga");
-  var cargaOculta = false;
+  var cargaOculta = false, infoRenovacion = "";
   function ocultarCarga() {
     if (cargaOculta) return;
     cargaOculta = true;
@@ -1276,9 +1283,100 @@
     } catch (e) { }
 
 
-    if (precarga) {
+    // ---------- Renovación (versión web 0.4) ----------
+    // Ruffle nunca devuelve memoria: cuando el libro ya usa mucha, js/puente-web.js lo cierra y lo
+    // vuelve a abrir en un momento tranquilo. Aquí se decide si el momento es tranquilo y, al volver
+    // a abrir (datos.reanudar), se regresa solo a la misma sesión, libro y página detrás de la
+    // portada y sin sonido, con las rutinas reanudarSesion / reanudarLibro / estadoRenovar de
+    // herramientas/parche_barras.py. En Android no hay datos.reanudar y nada de esto se usa.
+    var ultimoToque = performance.now(), ultimoSonido = -1e9, muestrasSonido = 0;
+    ["pointerdown", "pointermove", "pointerup", "touchstart", "touchmove", "wheel", "keydown", "gesturestart"].forEach(function (t) {
+      window.addEventListener(t, function () { ultimoToque = performance.now(); }, { capture: true, passive: true });
+    });
+    // ¿Suena algún audio del libro? (rutina sonando: la posición de algún Sound avanzó desde la vez anterior)
+    setInterval(function () {
+      try {
+        if (typeof player.sonando !== "function") return;
+        if (Number(player.sonando())) ultimoSonido = performance.now();
+        muestrasSonido++;
+      } catch (e) { }
+    }, 1000);
+    // "" si es un buen momento para volver a abrir el libro; si no, por qué no
+    window.__momentoTranquilo = function (ms) {
+      var ahora = performance.now();
+      if (!cargaOculta) return "abriendo";
+      if (ahora - ultimoToque < ms) return "toques";
+      if (window.video) return "video";
+      if (muestrasSonido < 2 || ahora - ultimoSonido < ms) return "audio";
+      var est = null;
+      try { est = player.estadoGesto(0); } catch (e) { est = null; }
+      if (!est) return "sin rutina";
+      if (est[0]) return "ejercicio abierto";
+      // Ventanas sin barras de desplazamiento (estadoGesto no las ve): estadoRenovar, campo 9
+      var ren = null;
+      try { ren = player.estadoRenovar(0); } catch (e) { ren = null; }
+      if (!ren || ren.length < 10) return "sin rutina";
+      if (ren[9]) return "ejercicio abierto";
+      if (est[1] > 0) return "herramienta";
+      if (!est[2]) return "fuera de las páginas";
+      if (est[3]) return "arrastre";
+      if (est[4] !== 1) return "hojeando";
+      return "";
+    };
+
+    var silenciar = function () { try { api.volume = 0; } catch (e) { } };
+    function volverALaPagina(r) {
+      var t0 = performance.now(), fase = "sesion", desde = 0, llegada = 0, directo = false;
+      var menos = (r.menos || []).slice(0, -1);   // el libro vuelve a agregar la última al llegar
+      var silencio = setInterval(silenciar, 100);
+      var paso = setInterval(function () {
+        var ahora = performance.now();
+        if (ahora - t0 > 45000) { fin("no terminó a tiempo (" + fase + ")"); return; }
+        try {
+          if (fase === "sesion") {
+            var x = Number(player.reanudarSesion(r.sesion));
+            if (x === -1) { fin("la sesión ya no está en la lista"); return; }
+            if (x === 1) {
+              if (!(r.libro >= 1)) { fin(""); return; }
+              fase = "libro"; desde = ahora;
+            }
+          } else if (fase === "libro") {
+            if (ahora - desde < 400) return;          // que el menú termine de armarse
+            var y = Number(player.reanudarLibro(r.libro, r.pagina, menos, r.mas || []));
+            if (y === -1) { fin("no se pudo abrir el libro"); return; }
+            if (y >= 1) { fase = "pagina"; desde = ahora; }
+          } else if (fase === "pagina") {
+            var e = player.estadoRenovar(0);
+            var h = e && e[5], u = h && h.length ? h[h.length - 1] : null;
+            var enLibro = e && Number(e[1]) === r.libro + Number(e[2]);
+            if (enLibro && u && Number(u[0]) === r.libro && Number(u[1]) === r.pagina) {
+              if (!llegada) llegada = ahora;
+              if (ahora - llegada > 1200) fin("");    // un momento para que se dibuje la página
+            } else if (enLibro && ahora - desde > 6000) {
+              if (directo) { fin("llegó a otra página"); return; }
+              // Llegó a otra página: segundo intento, directo a la página
+              directo = true; desde = ahora;
+              player.reanudarLibro(r.libro, r.pagina, null, null);
+            }
+          }
+        } catch (err) { }
+      }, 250);
+      function fin(problema) {
+        clearInterval(paso); clearInterval(silencio);
+        try { api.volume = 1; } catch (e) { }
+        infoRenovacion = (problema ? "no volvió (" + problema + ")" : "volvió a " + (r.libro >= 1 ? "la página " + r.pagina : "la sesión")) +
+          " en " + ((performance.now() - t0) / 1000).toFixed(1) + " s" + (directo ? ", con segundo intento" : "");
+        ocultarCarga();
+        if (problema) avisoBreve(r.libro >= 1 ? "Se liberó memoria, pero no se pudo volver a la página " + r.pagina + ". Búscala en el libro." : "Se liberó memoria. Vuelve a entrar a tu sesión.");
+      }
+    }
+
+    if (reanudar) {
+      player.addEventListener("loadedmetadata", silenciar);
+      player.addEventListener("loadeddata", function () { silenciar(); setTimeout(function () { volverALaPagina(reanudar); }, 200); });
+      setTimeout(function () { if (!cargaOculta) { infoRenovacion = "no volvió (el libro no cargó)"; try { api.volume = 1; } catch (e) { } ocultarCarga(); } }, 60000);
+    } else if (precarga) {
       // Sin sonido: el volumen solo se puede poner cuando ya existe la instancia de Ruffle
-      var silenciar = function () { try { api.volume = 0; } catch (e) { } };
       player.addEventListener("loadedmetadata", silenciar);
       var vecesSilencio = 0, silencio = setInterval(function () { silenciar(); if (++vecesSilencio > 40) clearInterval(silencio); }, 100);
       player.addEventListener("loadeddata", function () { silenciar(); setTimeout(terminarPrecarga, 3500); });
