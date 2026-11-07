@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Libro</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { --marco: #ece8e2; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--marco); }
+  body { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+  #contenedor { position: fixed; inset: 0; touch-action: none; }
+  ruffle-player { display: block; width: 100%; height: 100%; }
+
+  #carga {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    background: var(--marco);
+    font: 500 15px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: rgba(0,0,0,.62);
+    transition: opacity .45s ease;
+  }
+  #carga.oculto { opacity: 0; pointer-events: none; }
+  #portada {
+    height: min(58vh, 520px); aspect-ratio: 1100 / 1430; object-fit: cover;
+    border-radius: 6px; box-shadow: 0 18px 50px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.18);
+    background: rgba(255,255,255,.4);
+  }
+  #portada[hidden] { display: none; }
+  .barra { width: 160px; height: 3px; border-radius: 2px; background: rgba(0,0,0,.12); overflow: hidden; }
+  .barra i { display: block; height: 100%; width: 34%; border-radius: 2px; background: rgba(0,0,0,.55); animation: ir 1.15s ease-in-out infinite; }
+  @keyframes ir { from { transform: translateX(-110%); } to { transform: translateX(310%); } }
+
+  #error {
+    position: fixed; inset: 0; z-index: 20; display: none;
+    align-items: center; justify-content: center; padding: 24px;
+    background: var(--marco); font: 16px/1.45 system-ui, -apple-system, Roboto, sans-serif; color: #222; text-align: center;
+  }
+  #error.visible { display: flex; }
+
+  /* Video en MP4 encima de la ventana de video del libro */
+  #videoHTML { position: fixed; z-index: 6; background: #000; overflow: hidden; touch-action: manipulation; }
+  #videoHTML video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  #videoHTML video::cue { background: rgba(0,0,0,.5); color: #fff; }
+  #videoHTML .subtitulo {
+    position: absolute; left: 6%; right: 6%; bottom: 17%; text-align: center; pointer-events: none;
+    font: 600 clamp(13px, 3.4vmin, 30px)/1.3 system-ui, Roboto, sans-serif; color: #fff;
+    text-shadow: 0 0 4px #000, 0 1px 3px #000, 0 0 1px #000;
+  }
+  #videoHTML .subtitulo span { background: rgba(0,0,0,.45); padding: .08em .35em; border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  /* Botón de subtítulos: pequeño, y solo aparece junto con los controles del video */
+  #videoHTML button.sub {
+    position: absolute; top: 6px; right: 6px; height: 24px; min-width: 34px; padding: 0 7px; border-radius: 5px;
+    border: 1.5px solid rgba(255,255,255,.75); background: rgba(0,0,0,.28); color: rgba(255,255,255,.92);
+    font: 800 11px/1 system-ui, Roboto, sans-serif; letter-spacing: .05em;
+    opacity: 0; pointer-events: none; transition: opacity .3s ease;
+  }
+  #videoHTML button.sub::before { content: ""; position: absolute; inset: -10px; } /* área de toque más grande */
+  #videoHTML.controles button.sub { opacity: 1; pointer-events: auto; }
+  #videoHTML button.sub.activo { background: rgba(255,255,255,.9); color: #111; border-color: transparent; }
+  /* Menú de subtítulos: apagados o en cuatro tamaños */
+  .menuSub {
+    position: fixed; z-index: 7; top: 0; right: 0; display: none; flex-direction: column; min-width: 150px; padding: 6px;
+    border-radius: 10px; background: rgba(18,18,18,.9); box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  }
+  .menuSub.visible { display: flex; }
+  .menuSub .titulo { padding: 4px 10px 6px; color: rgba(255,255,255,.6); font: 700 11px system-ui, Roboto, sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+  .menuSub button {
+    display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 0; border-radius: 6px;
+    background: transparent; color: #fff; text-align: left; font: 500 15px system-ui, Roboto, sans-serif;
+  }
+  .menuSub button::before { content: ""; width: 16px; text-align: center; font-weight: 800; }
+  .menuSub button[aria-checked="true"] { background: rgba(255,255,255,.14); }
+  .menuSub button[aria-checked="true"]::before { content: "✓"; }
+  .avisoBasico {
+    position: fixed; z-index: 8; left: 50%; top: 10px; transform: translateX(-50%); max-width: min(90vw, 560px);
+    padding: 8px 14px; border-radius: 999px; background: rgba(20,20,20,.82); color: #fff; text-align: center;
+    font: 500 13px/1.35 system-ui, Roboto, sans-serif; pointer-events: none; transition: opacity .8s ease;
+  }
+  .avisoBasico.fuera { opacity: 0; }
+  #error div { max-width: 460px; }
+  #error button {
+    margin-top: 18px; font: 600 15px system-ui, Roboto, sans-serif; padding: 12px 22px; border-radius: 999px;
+    border: 0; background: #1f1d1a; color: #fff;
+  }
+</style>
+</head>
+<body>
+<div id="contenedor"></div>
+<div id="carga">
+  <img id="portada" alt="" hidden>
+  <div class="barra"><i></i></div>
+  <div id="titulo"></div>
+</div>
+<div id="error"><div><strong>No se pudo abrir el libro.</strong><p id="detalle"></p><button type="button" id="volver">Volver a la biblioteca</button></div></div>
+
+<!-- Versión web: lo que en Android hacen MainActivity y Servidor (en Android estos archivos no existen y no pasa nada) -->
+<script src="js/zip.js"></script>
+<script src="js/parches-datos.js"></script>
+<script src="js/parches.js"></script>
+<script src="js/puente-web.js"></script>
+<script>
+  "use strict";
+  var datos = {};
+  try { datos = JSON.parse(Android.datosLibro()) || {}; } catch (e) { }
+
+  if (datos.color) document.documentElement.style.setProperty("--marco", datos.color);
+  document.title = datos.titulo || "Libro";
+  document.getElementById("titulo").textContent = datos.precarga ? "Preparando el libro…" : (datos.titulo ? "Abriendo " + datos.titulo + "…" : "Abriendo…");
+  if (datos.portada) {
+    var img = document.getElementById("portada");
+    img.onload = function () { img.hidden = false; };
+    img.src = datos.portada;
+  }
+
+  // El primer libro que se abre desde que arrancó la app se abre primero de forma oculta (tras la
+  // portada y sin sonido) y luego otra vez para la maestra: la primera apertura salía con el texto
+  // mal y sin responder a los toques; la segunda siempre funcionaba bien.
+  var precarga = !!datos.precarga;
+
+  // Debe empezar con "http:": el reproductor de video del libro solo reproduce si es así.
+  // En la web, js/puente-web.js da http://<id>.libro.local/ y responde esas direcciones desde el zip.
+  var BASE = window.LIBRO_BASE || (location.origin + "/");
+
+  function salir() {
+    try { if (window.__liberar) window.__liberar(); } catch (e) { }
+    try { Android.cerrarLibro(); } catch (e) { }
+  }
+
+  // Funciones que el libro llama con javascript: (en el original las define recursos/config_flash.js)
+  // Botón de ventana del libro (arriba a la derecha): en la web pone o quita la pantalla completa
+  window.maximizarApp = function () { try { if (Android.pantallaCompleta) Android.pantallaCompleta(true); } catch (e) { } };
+  window.restaurarApp = function () { try { if (Android.pantallaCompleta) Android.pantallaCompleta(false); } catch (e) { } };
+  window.cerrarVentana = salir;
+  window.close = salir;
+
+  // Ventanas nuevas: los enlaces de internet se abren en el navegador; lo demás se ignora
+  window.open = function (url) {
+    var u;
+    try { u = new URL(String(url), BASE); } catch (e) { return null; }
+    if (/\.libro\.local$/i.test(u.hostname)) { console.warn("[libro] ventana nueva ignorada:", u.href); return null; }
+    if (/^https?:$/.test(u.protocol)) { try { Android.abrirExterno(u.href); } catch (e) { } }
+    return null;
+  };
+
+  // "Exportar sesión": Ruffle descarga el archivo con un enlace temporal (blob) que la vista
+  // web de Android no sabe guardar. Se lee aquí y se le pasa a la app para guardarlo.
+  (function () {
+    var pendientes = {};
+    var revocar = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = function (u) {
+      if (pendientes[u]) { setTimeout(function () { revocar(u); }, 60000); return; }
+      revocar(u);
+    };
+    var clicOriginal = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      var href = String(this.href || "");
+      var nombre = this.getAttribute("download");
+      if (nombre !== null && href.indexOf("blob:") === 0) {
+        pendientes[href] = true;
+        fetch(href).then(function (r) { return r.blob(); }).then(function (blob) {
+          var lector = new FileReader();
+          lector.onload = function () {
+            var datos = String(lector.result || "");
+            var coma = datos.indexOf(",");
+            try { Android.guardarArchivo(nombre || "sesion", blob.type || "application/octet-stream", datos.slice(coma + 1)); } catch (e) { }
+          };
+          lector.readAsDataURL(blob);
+        });
+        return;
+      }
+      return clicOriginal.apply(this, arguments);
+    };
+  })();
+
+  window.RufflePlayer = window.RufflePlayer || {};
+  window.RufflePlayer.config = {
+    publicPath: "ruffle/",   // relativa: /__app/ruffle/ en Android, junto a visor.html en la web
+    polyfills: false,
+    autoplay: "on",
+    unmuteOverlay: "hidden",
+    splashScreen: false,
+    letterbox: "off",
+    backgroundColor: datos.color || null,
+    contextMenu: "off",
+    showSwfDownload: false,
+    allowScriptAccess: true,
+    // Sin esto, Ruffle usa calidad "baja" en celulares y tabletas (sin suavizado: texto y botones
+    // se ven pixeleados) hasta que alguna parte del libro pide "BEST". Se usa desde el inicio.
+    quality: "best",
+    openUrlMode: "allow",
+    allowNetworking: "all",
+    warnOnUnsupportedContent: false,
+    upgradeToHttps: false,
+    logLevel: "warn",
+    base: BASE
+  };
+
+  // ---------- Videos en MP4 ----------
+  // La rutina que la app agrega a VIDEO.swf llama a estas funciones. Si el libro trae el video
+  // en MP4, se reproduce con el reproductor del sistema (decodificado por hardware, con el audio
+  // sincronizado) justo encima del reproductor Flash, que se queda detenido debajo.
+  var video = null;
+
+  function existeArchivo(ruta) {
+    try { if (window.Android && Android.existe) return !!Android.existe(ruta); } catch (e) { }
+    try {
+      var x = new XMLHttpRequest();
+      x.open("GET", BASE + ruta, false);
+      x.setRequestHeader("Range", "bytes=0-0");
+      x.send();
+      return x.status === 200 || x.status === 206;
+    } catch (e) { return false; }
+  }
+
+  function tamEscenario() {
+    var w = 1024, h = 768;
+    try {
+      var md = window.__ruffle && window.__ruffle.metadata;
+      if (md && md.width > 0 && md.height > 0) { w = md.width; h = md.height; }
+    } catch (e) { }
+    return { w: w, h: h };
+  }
+
+  function colocarVideo() {
+    if (!video || !video.rect) return;
+    var e = tamEscenario(), r = video.rect;
+    var W = window.innerWidth, H = window.innerHeight;
+    var s = Math.min(W / e.w, H / e.h), ox = (W - e.w * s) / 2, oy = (H - e.h * s) / 2;
+    var x0 = Math.max(0, r[0]), y0 = Math.max(0, r[1]), x1 = Math.min(e.w, r[2]), y1 = Math.min(e.h, r[3]);
+    if (x1 <= x0 || y1 <= y0) return;
+    var st = video.div.style;
+    st.left = Math.round(ox + x0 * s) + "px";
+    st.top = Math.round(oy + y0 * s) + "px";
+    st.width = Math.round((x1 - x0) * s) + "px";
+    st.height = Math.round((y1 - y0) * s) + "px";
+    aplicarTamanoSubtitulos();
+    if (video.menu && video.menu.classList.contains("visible")) colocarMenu();
+  }
+  window.addEventListener("resize", colocarVideo);
+
+  function leerSubtitulos(ruta, listo) {
+    fetch(BASE + ruta).then(function (r) { return r.ok ? r.text() : ""; }).then(function (txt) {
+      var lista = [];
+      if (txt) {
+        var doc = new DOMParser().parseFromString(txt, "text/xml");
+        var subs = doc.getElementsByTagName("subtitulo");
+        for (var i = 0; i < subs.length; i++) {
+          var ini = subs[i].getElementsByTagName("tiempoIni")[0], fin = subs[i].getElementsByTagName("tiempoFin")[0];
+          var tx = subs[i].getElementsByTagName("texto")[0];
+          if (!ini || !fin || !tx) continue;
+          lista.push({ ini: parseFloat(ini.textContent), fin: parseFloat(fin.textContent), texto: tx.textContent.split("*") });
+        }
+      }
+      listo(lista);
+    }).catch(function () { listo([]); });
+  }
+
+  // Tamaños de subtítulos (alto de la letra en proporción al alto del video). La elección se
+  // guarda en la app y vale para todos los libros.
+  var TAMANOS_SUB = [
+    { id: "no", nombre: "Sin subtítulos" },
+    { id: "chico", nombre: "Chicos", f: 0.052 },
+    { id: "mediano", nombre: "Medianos", f: 0.068 },
+    { id: "grande", nombre: "Grandes", f: 0.088 },
+    { id: "enorme", nombre: "Muy grandes", f: 0.11 }
+  ];
+  function tamanoSubtitulos() {
+    var v = null;
+    try { if (window.Android && Android.leerAjuste) v = Android.leerAjuste("subtitulos"); } catch (e) { }
+    if (!v) { try { v = localStorage.getItem("subtitulos"); } catch (e) { } }
+    if (v === "si") v = "mediano"; // versión anterior: solo encendidos o apagados
+    for (var i = 0; i < TAMANOS_SUB.length; i++) if (TAMANOS_SUB[i].id === v) return v;
+    return "mediano";
+  }
+  function guardarTamanoSubtitulos(v) {
+    try { if (window.Android && Android.guardarAjuste) Android.guardarAjuste("subtitulos", v); } catch (e) { }
+    try { localStorage.setItem("subtitulos", v); } catch (e) { }
+  }
+  function colocarMenu() {
+    if (!video) return;
+    var r = video.div.getBoundingClientRect(), m = video.menu;
+    m.style.right = Math.max(6, Math.round(window.innerWidth - r.right + 6)) + "px";
+    m.style.top = Math.max(6, Math.min(Math.round(r.top + 36), window.innerHeight - m.offsetHeight - 6)) + "px";
+  }
+  function aplicarTamanoSubtitulos() {
+    if (!video) return;
+    var t = null;
+    for (var i = 0; i < TAMANOS_SUB.length; i++) if (TAMANOS_SUB[i].id === video.tamano) t = TAMANOS_SUB[i];
+    var alto = video.div.getBoundingClientRect().height || 300;
+    if (t && t.f) video.sub.style.fontSize = Math.max(12, Math.round(alto * t.f)) + "px";
+  }
+
+  window.abrirVideoHTML = function (ruta, x0, y0, x1, y1) {
+    try {
+      var rel = String(ruta || "").replace(/\\/g, "/").replace(/^\/+/, "").split("?")[0];
+      if (!/\.flv$/i.test(rel)) return false;
+      var mp4 = rel.replace(/\.flv$/i, ".mp4");
+      if (!existeArchivo(mp4)) return false;
+      cerrarVideoHTML();
+
+      var div = document.createElement("div");
+      div.id = "videoHTML";
+      var v = document.createElement("video");
+      v.setAttribute("playsinline", "");
+      v.setAttribute("controls", "");
+      v.setAttribute("controlsList", "nofullscreen nodownload noplaybackrate noremoteplayback");
+      v.setAttribute("disablePictureInPicture", "");
+      v.preload = "auto";
+      if (window.urlArchivo) {
+        // Web: el MP4 sale directo del zip con una dirección blob: (sin servidor)
+        window.urlArchivo(mp4).then(function (u) {
+          if (!video || video.v !== v) return;
+          v.src = u;
+          var pp = v.play();
+          if (pp && pp.catch) pp.catch(function () { div.classList.add("controles"); });
+        }, function (err) { console.warn("[libro] video", err); });
+      } else {
+        v.src = BASE + mp4;
+      }
+      var sub = document.createElement("div");
+      sub.className = "subtitulo";
+      var boton = document.createElement("button");
+      boton.type = "button";
+      boton.className = "sub";
+      boton.textContent = "CC";
+      boton.setAttribute("aria-label", "Subtítulos");
+      var menu = document.createElement("div");
+      menu.className = "menuSub";
+      menu.setAttribute("role", "menu");
+      var titulo = document.createElement("div");
+      titulo.className = "titulo";
+      titulo.textContent = "Subtítulos";
+      menu.appendChild(titulo);
+      div.appendChild(v); div.appendChild(sub); div.appendChild(boton);
+      document.body.appendChild(div);
+      document.body.appendChild(menu); // fuera del video para que quepa aunque el video sea chico
+
+      var tam = tamanoSubtitulos();
+      video = { div: div, v: v, sub: sub, cues: [], tamano: tam, activos: tam !== "no", rect: [x0, y0, x1, y1], ultimo: null, ocultar: 0, cerrarMenu: 0, menu: menu };
+      var esto = video;
+      boton.classList.toggle("activo", esto.activos);
+      var opciones = TAMANOS_SUB.map(function (t) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("role", "menuitemradio");
+        b.textContent = t.nombre;
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          esto.tamano = t.id;
+          esto.activos = t.id !== "no";
+          guardarTamanoSubtitulos(t.id);
+          marcarOpciones();
+          boton.classList.toggle("activo", esto.activos);
+          aplicarTamanoSubtitulos();
+          esto.ultimo = undefined;
+          pintar();
+          if (esto.actualizarPista) esto.actualizarPista();
+          clearTimeout(esto.cerrarMenu);
+          esto.cerrarMenu = setTimeout(function () { menu.classList.remove("visible"); }, 600);
+        });
+        menu.appendChild(b);
+        return { b: b, id: t.id };
+      });
+      function marcarOpciones() {
+        opciones.forEach(function (o) { o.b.setAttribute("aria-checked", o.id === esto.tamano ? "true" : "false"); });
+      }
+      marcarOpciones();
+
+      // El botón se ve mientras el video está en pausa y unos segundos después de tocar el video,
+      // igual que los controles del reproductor; mientras se reproduce, se esconde solo.
+      function mostrarControles() {
+        div.classList.add("controles");
+        clearTimeout(esto.ocultar);
+        esto.ocultar = setTimeout(function () { if (!v.paused) div.classList.remove("controles"); }, 3000);
+      }
+      div.addEventListener("pointerdown", mostrarControles, true);
+      v.addEventListener("pause", function () { clearTimeout(esto.ocultar); div.classList.add("controles"); });
+      v.addEventListener("play", mostrarControles);
+      v.addEventListener("seeking", mostrarControles);
+      function pintar() {
+        var t = v.currentTime, actual = null;
+        if (esto.activos) for (var i = 0; i < esto.cues.length; i++) {
+          if (t >= esto.cues[i].ini && t <= esto.cues[i].fin) { actual = esto.cues[i]; break; }
+        }
+        if (actual === esto.ultimo) return;
+        esto.ultimo = actual;
+        sub.innerHTML = "";
+        if (actual) actual.texto.forEach(function (linea, i) {
+          if (i) sub.appendChild(document.createElement("br"));
+          var s = document.createElement("span"); s.textContent = linea; sub.appendChild(s);
+        });
+      }
+      v.addEventListener("timeupdate", pintar);
+      v.addEventListener("seeked", pintar);
+      // CC abre el menú; se cierra al elegir, al tocar otra parte del video o a los 8 segundos
+      boton.addEventListener("click", function (e) {
+        e.stopPropagation();
+        mostrarControles();
+        var abrir = !menu.classList.contains("visible");
+        menu.classList.toggle("visible", abrir);
+        if (abrir) colocarMenu();
+        clearTimeout(esto.cerrarMenu);
+        if (abrir) esto.cerrarMenu = setTimeout(function () { menu.classList.remove("visible"); }, 8000);
+      });
+      menu.addEventListener("pointerdown", function (e) { e.stopPropagation(); clearTimeout(esto.cerrarMenu); });
+      v.addEventListener("pointerdown", function () { menu.classList.remove("visible"); });
+      // Pantalla completa del reproductor (Safari, iPad, iPhone): ahí no se ve la capa de subtítulos de
+      // arriba, solo las pistas del propio video. Se agrega una pista con los mismos subtítulos que solo
+      // se muestra en pantalla completa (fuera de ella se usa la capa, con el tamaño elegido en CC).
+      function enPantallaCompleta() {
+        return !!(v.webkitDisplayingFullscreen || v.webkitPresentationMode === "fullscreen" ||
+          document.fullscreenElement === v || document.webkitFullscreenElement === v);
+      }
+      function actualizarPista() {
+        if (!esto.pista) return;
+        var modo = esto.activos && enPantallaCompleta() ? "showing" : "hidden";
+        if (esto.pista.mode !== modo) esto.pista.mode = modo;
+      }
+      esto.actualizarPista = actualizarPista;
+      ["webkitbeginfullscreen", "webkitendfullscreen", "webkitpresentationmodechanged"].forEach(function (ev) {
+        v.addEventListener(ev, function () { setTimeout(actualizarPista, 0); });
+      });
+      esto.alCambiarPantalla = function () { setTimeout(actualizarPista, 0); };
+      document.addEventListener("fullscreenchange", esto.alCambiarPantalla);
+      document.addEventListener("webkitfullscreenchange", esto.alCambiarPantalla);
+      leerSubtitulos(rel.replace(/\.flv$/i, ".xml"), function (lista) {
+        esto.cues = lista; pintar();
+        try {
+          if (!lista.length || !v.addTextTrack || typeof VTTCue !== "function") return;
+          var pista = v.addTextTrack("subtitles", "Subtítulos", "en");
+          lista.forEach(function (c) {
+            if (c.fin > c.ini) pista.addCue(new VTTCue(c.ini, c.fin, c.texto.join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;")));
+          });
+          esto.pista = pista;
+          actualizarPista();
+        } catch (err) { console.warn("[libro] pista de subtítulos", err); }
+      });
+
+      colocarVideo();
+      aplicarTamanoSubtitulos();
+      if (!window.urlArchivo) {
+        var p = v.play();
+        if (p && p.catch) p.catch(function () { });
+      }
+      return true;
+    } catch (e) {
+      console.warn("[libro] no se pudo abrir el video MP4", e);
+      return false;
+    }
+  };
+
+  window.moverVideoHTML = function (x0, y0, x1, y1) {
+    if (!video) return;
+    var r = video.rect;
+    if (r[0] === x0 && r[1] === y0 && r[2] === x1 && r[3] === y1) return;
+    video.rect = [x0, y0, x1, y1];
+    colocarVideo();
+  };
+
+  window.cerrarVideoHTML = function () {
+    if (!video) return;
+    clearTimeout(video.ocultar);
+    var v = video.v;
+    if (video.alCambiarPantalla) {
+      document.removeEventListener("fullscreenchange", video.alCambiarPantalla);
+      document.removeEventListener("webkitfullscreenchange", video.alCambiarPantalla);
+    }
+    try { v.pause(); v.removeAttribute("src"); v.load(); } catch (e) { }
+    try { if (window.soltarArchivos) window.soltarArchivos(); } catch (e) { }
+    if (video.div.parentNode) video.div.parentNode.removeChild(video.div);
+    if (video.menu && video.menu.parentNode) video.menu.parentNode.removeChild(video.menu);
+    clearTimeout(video.cerrarMenu);
+    video = null;
+  };
+
+  // ---------- Motor de dibujo ----------
+  // En algunos celulares la vista web a veces no tiene el dibujo por hardware (WebGL) o lo da
+  // por software (lentísimo). Antes de abrir el libro se revisa qué WebGL hay y se espera un
+  // poco a que esté el de hardware. Si no llega, el libro usa el dibujo "canvas" de Ruffle, que
+  // en ese caso va mejor. Lo que pase queda en los datos técnicos.
+  var gpu = { ok: false, renderer: "", software: false, intentos: 0, espera_ms: 0 };
+  var motorInfo = { errores: [], perdidas: 0, aviso: false, forzado: "" };
+  var SOFTWARE = /swiftshader|llvmpipe|softpipe|software|mesa offscreen|basic render/i;
+  (function () {
+    var logOriginal = console.log, errorOriginal = console.error;
+    console.log = function () {
+      try {
+        var texto = Array.prototype.join.call(arguments, " ");
+        var m = /Used renderer: ([\w-]+)/.exec(texto);
+        if (m) {
+          window.__motor = m[1];
+          var ext = /WebAssembly extensions: (\w+)/.exec(texto);
+          window.__extensiones = ext ? ext[1] : "";
+        }
+      } catch (e) { }
+      return logOriginal.apply(console, arguments);
+    };
+    console.error = function () {
+      try {
+        var texto = Array.prototype.join.call(arguments, " ");
+        if (/render|webgl|wgpu|context|adapter/i.test(texto) && motorInfo.errores.length < 4) motorInfo.errores.push(texto.replace(/%c/g, "").slice(0, 160));
+      } catch (e) { }
+      return errorOriginal.apply(console, arguments);
+    };
+  })();
+
+  // Memoria gráfica estimada (datos técnicos): lo que Ruffle pide en texturas, multisampling y
+  // búferes. No incluye lo que la vista web reserva por su cuenta; sirve para comparar sesiones y
+  // saber con cuánta memoria se pierde el WebGL en cada equipo.
+  var memGPU = { actual: 0, pico: 0, buferes: 0, alPerder: 0 };
+  window.__memGPU = memGPU;
+  (function () {
+    try {
+      var tam = new WeakMap(), ligado = new WeakMap();
+      function suma(obj, bytes, esBufer) {
+        if (!obj) return;
+        var previo = tam.get(obj);
+        if (previo === undefined) { previo = 0; if (esBufer) memGPU.buferes++; }
+        tam.set(obj, bytes);
+        memGPU.actual += bytes - previo;
+        if (memGPU.actual > memGPU.pico) memGPU.pico = memGPU.actual;
+      }
+      function resta(obj, esBufer) {
+        if (!obj) return;
+        var previo = tam.get(obj);
+        if (previo === undefined) return;
+        tam.delete(obj);
+        memGPU.actual -= previo;
+        if (esBufer) memGPU.buferes--;
+      }
+      [window.WebGLRenderingContext, window.WebGL2RenderingContext].forEach(function (C) {
+        if (!C) return;
+        var P = C.prototype;
+        function estado(ctx) { var m = ligado.get(ctx); if (!m) { m = {}; ligado.set(ctx, m); } return m; }
+        function envolver(nombre, antes) {
+          var f = P[nombre];
+          if (typeof f !== "function") return;
+          P[nombre] = function () { try { antes(this, arguments); } catch (e) { } return f.apply(this, arguments); };
+        }
+        envolver("bindTexture", function (c, a) { estado(c)["t" + a[0]] = a[1]; });
+        envolver("bindRenderbuffer", function (c, a) { estado(c).rb = a[1]; });
+        envolver("bindBuffer", function (c, a) { estado(c)["b" + a[0]] = a[1]; });
+        envolver("texStorage2D", function (c, a) { suma(estado(c)["t" + a[0]], a[3] * a[4] * 4 * (a[1] > 1 ? 1.34 : 1)); });
+        envolver("texImage2D", function (c, a) {
+          if (a[1] !== 0) return;
+          var t = estado(c)["t" + (a[0] >= 0x8515 && a[0] <= 0x851A ? 0x8513 : a[0])];
+          if (a.length >= 9 && typeof a[3] === "number") suma(t, a[3] * a[4] * 4);
+          else if (a.length === 6 && a[5]) suma(t, (a[5].width || 0) * (a[5].height || 0) * 4);
+        });
+        envolver("deleteTexture", function (c, a) { resta(a[0]); });
+        envolver("renderbufferStorage", function (c, a) { suma(estado(c).rb, a[2] * a[3] * (a[1] === 0x8D48 ? 1 : 4)); });
+        envolver("renderbufferStorageMultisample", function (c, a) { suma(estado(c).rb, a[3] * a[4] * (a[2] === 0x8D48 ? 1 : 4) * Math.max(1, a[1])); });
+        envolver("deleteRenderbuffer", function (c, a) { resta(a[0]); });
+        envolver("bufferData", function (c, a) {
+          var n = typeof a[1] === "number" ? a[1] : (a[1] && a[1].byteLength) || 0;
+          suma(estado(c)["b" + a[0]], n, true);
+        });
+        envolver("deleteBuffer", function (c, a) { resta(a[0], true); });
+      });
+    } catch (e) { }
+  })();
+  function textoMemGPU() {
+    var mb = function (b) { return Math.round(b / 1048576); };
+    return mb(memGPU.actual) + " MB (pico " + mb(memGPU.pico) + " MB, " + memGPU.buferes + " búferes" +
+      (memGPU.alPerder ? ", al perder WebGL " + mb(memGPU.alPerder) + " MB" : "") + ")";
+  }
+
+  function probarGPU() {
+    var r = { ok: false, renderer: "", software: false };
+    try {
+      var c = document.createElement("canvas");
+      var gl = c.getContext("webgl2") || c.getContext("webgl");
+      if (gl) {
+        r.ok = true;
+        var info = gl.getExtension("WEBGL_debug_renderer_info");
+        r.renderer = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+        r.software = SOFTWARE.test(r.renderer);
+        var perder = gl.getExtension("WEBGL_lose_context");
+        if (perder) perder.loseContext();
+      }
+    } catch (e) { }
+    return r;
+  }
+
+  // Motor de dibujo elegido en la biblioteca: "auto" (WebGL; si alguna vez se perdió en este equipo,
+  // canvas), "canvas" o "webgl". En el POCO el WebGL se perdía al poco rato por falta de memoria
+  // gráfica y no volvía en un minuto; en canvas el libro se ve bien y no se pierde.
+  function ajuste(clave) { try { return window.Android && Android.leerAjuste ? Android.leerAjuste(clave) : null; } catch (e) { return null; } }
+  function guardar(clave, v) { try { if (window.Android && Android.guardarAjuste) Android.guardarAjuste(clave, String(v)); } catch (e) { } }
+  var modoDibujo = ajuste("dibujo") || "auto";
+  var perdidasEquipo = parseInt(ajuste("webgl_perdidas") || "0", 10) || 0;
+  function usarCanvasDeUna() { return modoDibujo === "canvas" || (modoDibujo === "auto" && perdidasEquipo > 0); }
+
+  function esperarHorizontal(listo) {
+    var t0 = performance.now(), hecho = false, tope = 0, asentar = 0;
+    function horizontal() { return window.innerWidth >= window.innerHeight; }
+    function fin() {
+      if (hecho) return;
+      hecho = true;
+      window.removeEventListener("resize", revisar);
+      clearTimeout(tope); clearTimeout(asentar);
+      motorInfo.giro_ms = Math.round(performance.now() - t0);
+      motorInfo.giro_ok = horizontal();
+      listo();
+    }
+    function revisar() { clearTimeout(asentar); if (horizontal()) asentar = setTimeout(fin, 150); }
+    if (horizontal()) { motorInfo.giro_ms = 0; motorInfo.giro_ok = true; listo(); return; }
+    window.addEventListener("resize", revisar);
+    tope = setTimeout(fin, 2500);   // por si el equipo no gira (no detiene la apertura)
+  }
+
+  function esperarGPU(listo) {
+    if (usarCanvasDeUna()) { gpu.espera_ms = 0; listo({ ok: false, renderer: "", software: false, elegido: true }); return; }
+    var t0 = performance.now(), recuperando = perdioGPUHacePoco(), avisado = false;
+    gpu.recuperando = recuperando;
+    (function probar() {
+      var r = probarGPU();
+      gpu.intentos++;
+      gpu.ok = r.ok; gpu.renderer = r.renderer; gpu.software = r.software;
+      var t = performance.now() - t0;
+      gpu.espera_ms = Math.round(t);
+      // Tras perder el WebGL, el sistema tarda en devolverlo (a veces más de 10 s). Se espera hasta
+      // un minuto con un aviso: el dibujo "canvas" es el último recurso, porque se ve borroso, va
+      // lento y no puede copiar imágenes (BitmapData.draw), así que el libro funciona a medias.
+      var limite = recuperando ? 10000 : 8000;
+      if ((r.ok && !r.software) || t > limite) { listo(r); return; }
+      if (!avisado && t > 1200) {
+        avisado = true;
+        try { document.getElementById("titulo").textContent = recuperando ? "Recuperando la imagen del libro…" : "Preparando la imagen del libro…"; } catch (e) { }
+      }
+      setTimeout(probar, recuperando ? 500 : 250);
+    })();
+  }
+
+  // Si de plano no hubo WebGL y se usa canvas, se avisa discretamente que la imagen va en modo básico.
+  function avisarModoBasico() {
+    var a = document.createElement("div");
+    a.className = "avisoBasico";
+    a.textContent = "Imagen en modo básico. Para recuperar la calidad, cierra el libro y vuelve a abrirlo en un momento.";
+    document.body.appendChild(a);
+    setTimeout(function () { a.classList.add("fuera"); }, 9000);
+    setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 10000);
+  }
+
+  // Si el dibujo por hardware se perdió hace poco (la imagen se congela), se usa canvas un rato
+  function perdioGPUHacePoco() {
+    try { var t = parseInt(sessionStorage.getItem("perdioGPU") || "0", 10); return t > 0 && Date.now() - t < 180000; } catch (e) { return false; }
+  }
+
+  // Al cerrar el libro se libera la memoria de dibujo de inmediato, para que el siguiente libro
+  // que se abra encuentre WebGL disponible.
+  var saliendo = false;
+  function liberarMotor() {
+    saliendo = true;
+    try { cerrarVideoHTML(); } catch (e) { }
+    try {
+      var p = document.querySelector("ruffle-player");
+      var sr = p && p.shadowRoot;
+      var lienzos = sr ? sr.querySelectorAll("canvas") : [];
+      for (var i = 0; i < lienzos.length; i++) {
+        var gl = null;
+        try { gl = lienzos[i].getContext("webgl2") || lienzos[i].getContext("webgl"); } catch (e) { }
+        var perder = gl && gl.getExtension("WEBGL_lose_context");
+        if (perder) perder.loseContext();
+      }
+      if (p && p.parentNode) p.parentNode.removeChild(p);
+    } catch (e) { }
+  }
+  window.__liberar = liberarMotor;
+  window.addEventListener("pagehide", liberarMotor);
+
+  // ---------- Datos técnicos ----------
+  // Cuánto tardó en abrir y qué tan fluido fue el primer medio minuto. Se guardan en la app y
+  // se ven en la biblioteca («Cómo preparar los libros» > Datos técnicos), para diagnosticar.
+  var largas = [];
+  try {
+    new PerformanceObserver(function (l) {
+      l.getEntries().forEach(function (e) { largas.push([e.startTime, e.duration]); });
+    }).observe({ type: "longtask", buffered: true });
+  } catch (e) { }
+  // Toques con el dedo durante la sesión (para revisar el lápiz y las barras) y avisos de Ruffle
+  var sesion = Math.random().toString(36).slice(2, 10);
+  var toques = { abajo: 0, movs: 0, movs0: 0, arriba: 0, cancel: 0, hover: 0, otro: "", tmovs: 0, puestos: 0, presion: [], barras: 0, pan: 0, panMovs: 0, panHerr: 0, panLibro: 0, paginas: 0, pagLibro: 0, pellizcos: 0, pasosZoom: 0 };
+  ["pointerdown", "pointermove", "pointerup", "pointercancel"].forEach(function (tipo) {
+    document.addEventListener(tipo, function (e) {
+      if (!e.isTrusted || e.pointerType === "mouse") return;
+      if (tipo === "pointerdown") { toques.abajo++; if (toques.presion.length < 12) toques.presion.push(Math.round((e.pressure || 0) * 100) / 100); }
+      else if (tipo === "pointermove") { if (e.buttons) toques.movs++; else toques.movs0++; }
+      else if (tipo === "pointerup") toques.arriba++;
+      else toques.cancel++;
+    }, true);
+  });
+  var avisosRuffle = [];
+  var RUIDO = /_pag\.ini|config\d\d\.xml|intro0\d\.jpg|FocusManager|RemoveSprite|No sound is attached|Stack underflow|Cannot enumerate|Cannot delete property/;
+  (function () {
+    var logPrevio = console.log;
+    console.log = function () {
+      try {
+        var t = Array.prototype.join.call(arguments, " ");
+        if (/^(%c)?(WARN|ERROR)/.test(t) && !RUIDO.test(t)) {
+          t = t.replace(/%c/g, "").replace(/color:.*$/, "").replace(/core\/src\//, "").trim().slice(0, 120);
+          if (avisosRuffle.indexOf(t) < 0 && avisosRuffle.length < 10) avisosRuffle.push(t);
+        }
+      } catch (e) { }
+      return logPrevio.apply(console, arguments);
+    };
+  })();
+
+  function medirFluidez(listoEn) {
+    var cuadros = [], previo = 0, fin = performance.now() + 30000, medido = false;
+    function cuadro(t) {
+      if (medido) return;
+      if (previo) cuadros.push(t - previo);
+      previo = t;
+      if (t < fin) requestAnimationFrame(cuadro); else { medido = true; reportar(); }
+    }
+    requestAnimationFrame(cuadro);
+    // Se reporta a los 30 s y otra vez al cerrar el libro (con los toques de toda la sesión)
+    window.addEventListener("pagehide", function () { medido = true; if (cuadros.length > 30) reportar(); });
+    function reportar() {
+      var total = cuadros.reduce(function (s, x) { return s + x; }, 0);
+      var lentos = cuadros.filter(function (x) { return x > 100; }).length;
+      var peor = cuadros.reduce(function (m, x) { return Math.max(m, x); }, 0);
+      var enUso = largas.filter(function (x) { return x[0] >= listoEn; });
+      var chrome = /Chrome\/([\d.]+)/.exec(navigator.userAgent);
+      function dd(n) { return (n < 10 ? "0" : "") + n; }
+      function fechaLocal() { var f = new Date(); return f.getFullYear() + "-" + dd(f.getMonth() + 1) + "-" + dd(f.getDate()) + " " + dd(f.getHours()) + ":" + dd(f.getMinutes()); }
+      var d = {
+        fecha: fechaLocal(),
+        libro: datos.etiqueta || datos.titulo || "",
+        apertura: datos.apertura || 0,          // 1 = primer libro abierto desde que arrancó la app
+        desde_biblioteca: !!datos.calentado,    // la biblioteca alcanzó a preparar el motor
+        abrir_ms: Math.round(listoEn),
+        carga_largas_ms: Math.round(largas.filter(function (x) { return x[0] < listoEn; }).reduce(function (s, x) { return s + x[1]; }, 0)),
+        fps: cuadros.length ? Math.round(cuadros.length * 1000 / total) : 0,
+        cuadros_lentos: lentos,
+        peor_cuadro_ms: Math.round(peor),
+        uso_largas_ms: Math.round(enUso.reduce(function (s, x) { return s + x[1]; }, 0)),
+        motor: window.__motor || "?",
+        extensiones: window.__extensiones || "?",
+        gpu: (gpu.ok ? gpu.renderer || "WebGL" : "sin WebGL") + (gpu.software ? " (software)" : ""),
+        gpu_espera_ms: gpu.espera_ms,
+        canvas_por: motorInfo.forzado,
+        aviso_ruffle: motorInfo.aviso,
+        perdidas_webgl: motorInfo.perdidas,
+        errores: motorInfo.errores.join(" | "),
+        apertura_oculta: datos.info_precarga || "",
+        sesion: sesion,
+        toques: "abajo " + toques.abajo + ", movidos " + toques.movs + " (+" + toques.movs0 + " sin botón), touchmove " + toques.tmovs + ", repuestos " + toques.puestos +
+          ", arriba " + toques.arriba + ", cancelados " + toques.cancel + ", aviso de paso " + toques.hover + ", páginas con el dedo " + toques.paginas + (toques.pagLibro ? " (del libro " + toques.pagLibro + ")" : "") + ", pellizcos " + toques.pellizcos + " (pasos de zoom " + toques.pasosZoom + "), arrastres del contenido " + toques.pan + " (movidas " + toques.panMovs + ", con lápiz " + toques.panHerr + ", del libro " + toques.panLibro + "), barras " + toques.barras + " (directas " + (toques.directo || 0) + ", movidas " + (toques.movsBarra || 0) + ", vistas " + (toques.vistas || 0) + ", rutina " + (toques.rutina || (function () { try { var p = document.querySelector("ruffle-player"); return p && p.barrasEstado ? JSON.stringify(p.barrasEstado()) : "no"; } catch (e) { return "error"; } })()) + "), presión " + toques.presion.join("/") + (toques.otro ? ", fuera del lienzo: " + toques.otro : ""),
+        avisos_gl: (function () { try { return window.Android && Android.avisosGL ? String(Android.avisosGL() || "") : ""; } catch (e) { return ""; } })(),
+        recupera_webgl: gpu.recuperando ? (gpu.ok && !gpu.software ? "volvió en " + gpu.espera_ms + " ms" : "no volvió en " + gpu.espera_ms + " ms") : "",
+        mem_gpu: textoMemGPU(),
+        dibujo: modoDibujo + (perdidasEquipo ? ", WebGL perdido antes en este equipo: " + perdidasEquipo : ""),
+        avisos: avisosRuffle.join(" | "),
+        pantalla: Math.round(screen.width * devicePixelRatio) + "x" + Math.round(screen.height * devicePixelRatio) + " @" + devicePixelRatio +
+          (motorInfo.giro_ms ? (motorInfo.giro_ok ? ", esperó " + motorInfo.giro_ms + " ms a quedar horizontal" : ", no quedó horizontal") : ""),
+        nucleos: navigator.hardwareConcurrency || 0,
+        memoria_gb: navigator.deviceMemory || 0,
+        webview: chrome ? chrome[1] : ""
+      };
+      try { if (Android.guardarDiagnostico) Android.guardarDiagnostico(JSON.stringify(d)); } catch (e) { }
+    }
+  }
+
+  var carga = document.getElementById("carga");
+  var cargaOculta = false;
+  function ocultarCarga() {
+    if (cargaOculta) return;
+    cargaOculta = true;
+    carga.classList.add("oculto");
+    setTimeout(function () { carga.style.display = "none"; }, 600);
+    try { Android.libroListo(); } catch (e) { }
+    medirFluidez(performance.now());
+  }
+  var precargaTerminada = false;
+  function terminarPrecarga() {
+    if (precargaTerminada) return;
+    precargaTerminada = true;
+    var info = (window.__motor || "?") + ", " + (gpu.ok ? (gpu.renderer || "WebGL") : "sin WebGL") + (gpu.software ? " (software)" : "") +
+      ", " + Math.round(performance.now()) + " ms" + (motorInfo.forzado ? ", canvas por " + motorInfo.forzado : "") +
+      (motorInfo.aviso ? ", aviso de Ruffle" : "") + (motorInfo.perdidas ? ", WebGL perdido " + motorInfo.perdidas : "");
+    try {
+      if (window.Android && Android.precargaLista) { Android.precargaLista(info); return; }
+    } catch (e) { }
+    location.reload();
+  }
+  function mostrarError(msg) {
+    document.getElementById("detalle").textContent = msg || "";
+    document.getElementById("error").classList.add("visible");
+  }
+  document.getElementById("volver").addEventListener("click", salir);
+</script>
+<script src="ruffle/ruffle.js"></script>
+<script>
+  "use strict";
+  (function () {
+    if (!window.RufflePlayer || !window.RufflePlayer.newest) {
+      mostrarError("Falta el motor del libro (Ruffle).");
+      return;
+    }
+    var ruffle = window.RufflePlayer.newest();
+    var player = ruffle.createPlayer();
+    document.getElementById("contenedor").appendChild(player);
+    var api = typeof player.ruffle === "function" ? player.ruffle() : player;
+    window.__ruffle = api;
+
+    // Ruffle abre un aviso en inglés ("hardware acceleration is disabled") cuando cree que el
+    // dibujo va por software: oscurece el libro y el primer toque solo sirve para cerrarlo (por
+    // eso a veces "no respondía"). Se oculta; solo se anota en los datos técnicos.
+    (function () {
+      var sr = player.shadowRoot;
+      if (!sr) return;
+      var estilo = document.createElement("style");
+      estilo.textContent = "#hardware-acceleration-modal{display:none!important}";
+      sr.appendChild(estilo);
+
+      // ---------- Barras de desplazamiento ----------
+      // El "pulgar" de las barras de los ejercicios ampliados mide unos 10 x 12 px del escenario
+      // (~3 mm en el celular): con el dedo casi nunca se atina, y un toque 1 mm fuera no hace nada.
+      // La rutina que la app agrega a browser.swf (herramientas/parche_barras.py) da los rectángulos
+      // de pulgares y barras visibles (player.barrasLibro()). Si el dedo cae sobre una barra o cerca
+      // de ella, el toque se le pasa a Ruffle en el centro del pulgar (así el libro lo agarra), el
+      // pulgar salta adonde está el dedo y luego lo sigue. Con ratón no se cambia nada.
+      // ---------- Pellizcar para acercar o alejar el ejercicio ampliado (v1.9.4) ----------
+      // Si con un ejercicio ampliado abierto se apoya un segundo dedo, el gesto ya no le llega al
+      // libro (ni a las barras ni al lápiz): lo que hacía el primer dedo se suelta y, al abrir o
+      // cerrar los dedos, se usan los botones + / - del propio libro (player.zoomPaso); el punto entre
+      // los dedos se queda en su lugar. Cada paso pide abrir o cerrar un 25 % más.
+      var dedos = {}, pellizco = null;
+      function estadoLibro(reiniciar) { try { return player.estadoGesto(reiniciar ? 1 : 0); } catch (err) { return null; } }
+      function contarDedos() { var n = 0; for (var k in dedos) n++; return n; }
+      function revisarPellizco(a, b) {
+        if (!pellizco) return;
+        var d = Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+        if (!pellizco.base) { pellizco.base = d; return; }
+        var r = d / pellizco.base, dir = r > 1.25 ? 1 : (r < 0.8 ? -1 : 0);
+        if (!dir) return;
+        var g = pellizco.g, cx = ((a.x + b.x) / 2 - g.ox) / g.s, cy = ((a.y + b.y) / 2 - g.oy) / g.s, z = -1;
+        try { z = Number(player.zoomPaso(dir, cx, cy)); } catch (err) { z = -1; }
+        if (z >= 0) toques.pasosZoom++;
+        pellizco.base = d;   // el siguiente paso cuenta desde aquí (si ya no hay más zoom, no pasa nada)
+      }
+      function revisarConDedos() {
+        var ids = Object.keys(pellizco.pos);
+        if (ids.length >= 2) revisarPellizco(pellizco.pos[ids[0]], pellizco.pos[ids[1]]);
+      }
+      sr.addEventListener("pointerdown", function (e) {
+        if (e.pointerType === "mouse" || !e.isTrusted) return;
+        if (pellizco) { pellizco.pos[e.pointerId] = { x: e.clientX, y: e.clientY }; e.stopImmediatePropagation(); return; }
+        if (e.isPrimary) dedos = {};   // primer dedo de un gesto nuevo: se olvida cualquier dedo perdido
+        var primero = null;
+        for (var k in dedos) primero = { id: Number(k), x: dedos[k].x, y: dedos[k].y, tipo: dedos[k].tipo };
+        dedos[e.pointerId] = { x: e.clientX, y: e.clientY, tipo: e.pointerType };
+        if (contarDedos() !== 2 || !primero) return;
+        var est = estadoLibro(false);
+        if (!est || !est[0]) return;                       // sin ejercicio ampliado: el segundo dedo sigue normal
+        var lienzo = lienzoDe(e.target);
+        if (!lienzo) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        toques.pellizcos++;
+        pellizco = { pos: {}, base: 0, g: geometria(lienzo), propio: true };
+        pellizco.pos[primero.id] = { x: primero.x, y: primero.y };
+        pellizco.pos[e.pointerId] = { x: e.clientX, y: e.clientY };
+        // Soltar lo que hacía el primer dedo
+        var falso = { pointerId: primero.id, pointerType: primero.tipo };
+        if (agarre) {
+          var directo = agarre.directo !== undefined, l = agarre.lienzo;
+          agarre = null;
+          if (!directo) enviarPuntero(l, "pointerup", -400, -400, falso, 0, 0);
+        } else if (!(pan && pan.estado !== "posible")) {
+          // Ruffle tiene apretado el primer dedo: con lápiz se suelta en su lugar (si se moviera
+          // fuera, el lápiz dibujaría una raya hasta allá); sin lápiz, fuera del escenario
+          if (est[1] > 0) enviarPuntero(lienzo, "pointerup", primero.x, primero.y, falso, 0, 0);
+          else { enviarPuntero(lienzo, "pointermove", -400, -400, falso, 1, -1); enviarPuntero(lienzo, "pointerup", -400, -400, falso, 0, 0); }
+        }
+        pan = null;
+        pellizco.propio = false;
+        revisarConDedos();
+      }, true);
+      sr.addEventListener("pointermove", function (e) {
+        if (dedos[e.pointerId] && e.isTrusted) { dedos[e.pointerId].x = e.clientX; dedos[e.pointerId].y = e.clientY; }
+        if (!pellizco || pellizco.propio || !pellizco.pos[e.pointerId]) return;
+        e.stopImmediatePropagation();
+        ultimoMov = performance.now();
+        if (!e.isTrusted) return;
+        pellizco.pos[e.pointerId] = { x: e.clientX, y: e.clientY };
+        revisarConDedos();
+      }, true);
+      // Si llegan pocos pointermove, los dedos del touchmove también cuentan
+      sr.addEventListener("touchmove", function (e) {
+        if (!pellizco || !e.touches || e.touches.length < 2) return;
+        revisarPellizco({ x: e.touches[0].clientX, y: e.touches[0].clientY }, { x: e.touches[1].clientX, y: e.touches[1].clientY });
+      }, { capture: true, passive: true });
+      function quitarDedo(e) {
+        delete dedos[e.pointerId];
+        if (pellizco && pellizco.pos[e.pointerId]) {
+          delete pellizco.pos[e.pointerId];
+          if (!Object.keys(pellizco.pos).length) pellizco = null;
+          return true;
+        }
+        return false;
+      }
+      ["pointerup", "pointercancel"].forEach(function (tipo) {
+        sr.addEventListener(tipo, function (e) {
+          if (pellizco && pellizco.propio) return;
+          if (!e.isTrusted) { if (pellizco && pellizco.pos[e.pointerId]) e.stopImmediatePropagation(); return; }
+          if (quitarDedo(e)) e.stopImmediatePropagation();
+        }, true);
+        window.addEventListener(tipo, function (e) { if (e.isTrusted) quitarDedo(e); });
+      });
+
+      var agarre = null;
+      function moverDirecto(x, y) {
+        if (!agarre || agarre.directo === undefined) return;
+        try { player.moverZoom(agarre.eje, (x - agarre.ox) / agarre.s, (y - agarre.oy) / agarre.s, 0, 0, agarre.directo); toques.movsBarra = (toques.movsBarra || 0) + 1; } catch (err) { }
+      }
+      // Si llegan pocos pointermove, el touchmove también mueve el contenido
+      sr.addEventListener("touchmove", function (e) {
+        if (!agarre || agarre.directo === undefined) return;
+        var t = e.changedTouches && e.changedTouches[0];
+        if (t) moverDirecto(t.clientX, t.clientY);
+      }, { capture: true, passive: true });
+      function lienzoDe(t) { if (t && t.tagName === "CANVAS") return t; try { return sr.querySelector("canvas"); } catch (e) { return null; } }
+      function enviarPuntero(lienzo, tipo, x, y, e, botones, boton) {
+        try {
+          lienzo.dispatchEvent(new PointerEvent(tipo, {
+            bubbles: true, cancelable: true, composed: true,
+            clientX: x, clientY: y, screenX: x, screenY: y,
+            pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: true, buttons: botones, button: boton,
+            pressure: botones ? 0.5 : 0
+          }));
+        } catch (err) { }
+      }
+      function barraCerca(lienzo, px, py) {
+        var lista = null;
+        try { if (typeof player.barrasLibro === "function") lista = player.barrasLibro(); } catch (err) { lista = null; }
+        toques.vistas = Math.max(toques.vistas || 0, lista && lista.length ? lista.length : 0);
+        try { if (typeof player.barrasEstado === "function") toques.rutina = JSON.stringify(player.barrasEstado()); } catch (err) { }
+        if (!lista || !lista.length) return null;
+        var r = lienzo.getBoundingClientRect(), esc = tamEscenario();
+        var s = Math.min(r.width / esc.w, r.height / esc.h);
+        var ox = r.left + (r.width - esc.w * s) / 2, oy = r.top + (r.height - esc.h * s) / 2;
+        // La esquina inferior izquierda es del botón i-tools (y su menú): ahí no se toca nada
+        if (px < ox + 80 * s && py > oy + 712 * s) return null;
+        var centroX = ox + esc.w * s / 2, centroY = oy + esc.h * s / 2;
+        var mejor = null, mejorD = 1e9;
+        for (var i = 0; i < lista.length; i++) {
+          var b = lista[i];
+          if (!b || b.length < 9) continue;
+          var p0x = ox + b[1] * s, p0y = oy + b[2] * s, p1x = ox + b[3] * s, p1y = oy + b[4] * s;
+          var b0x = ox + b[5] * s, b0y = oy + b[6] * s, b1x = ox + b[7] * s, b1y = oy + b[8] * s;
+          var cx = (p0x + p1x) / 2, cy = (p0y + p1y) / 2, dentro;
+          // Franja de la barra: más ancha hacia afuera (orilla del escenario) que hacia el contenido
+          var FUERA = 26, ADENTRO = 12;
+          if (b[0] === "v") {
+            var x0 = Math.min(b0x, p0x), x1 = Math.max(b1x, p1x), derecha = (x0 + x1) / 2 > centroX;
+            dentro = px >= x0 - (derecha ? ADENTRO : FUERA) && px <= x1 + (derecha ? FUERA : ADENTRO) && py >= b0y - 2 && py <= b1y + 2;
+          } else {
+            var y0 = Math.min(b0y, p0y), y1 = Math.max(b1y, p1y), abajo = (y0 + y1) / 2 > centroY;
+            // La barra horizontal de abajo queda pegada al borde de la pantalla: hacia adentro se da un poco más
+            dentro = py >= y0 - (abajo ? ADENTRO + 4 : FUERA) && py <= y1 + (abajo ? FUERA : ADENTRO + 4) && px >= b0x - 2 && px <= b1x + 2;
+          }
+          if (!dentro) dentro = px >= p0x - 22 && px <= p1x + 22 && py >= p0y - 22 && py <= p1y + 22;
+          if (!dentro) continue;
+          var d = Math.abs(px - cx) + Math.abs(py - cy);
+          if (d < mejorD) { mejorD = d; mejor = { x: cx, y: cy, eje: b[0], scx: (b[1] + b[3]) / 2, scy: (b[2] + b[4]) / 2, ox: ox, oy: oy, s: s }; }
+        }
+        return mejor;
+      }
+      sr.addEventListener("pointerdown", function (e) {
+        if (e.pointerType === "mouse" || !e.isTrusted) return;
+        if (agarre && performance.now() - agarre.t < 15000) return;   // ya hay un dedo en una barra
+        agarre = null;
+        var lienzo = lienzoDe(e.target);
+        if (!lienzo) return;
+        var t = barraCerca(lienzo, e.clientX, e.clientY);
+        if (!t) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        toques.barras++;
+        // v1.9.2: en las ventanas de zoom se mueve el contenido directamente (rutina moverZoom de
+        // parche_barras.py), sin el arrastre del libro: en el POCO el pulgar cambiaba de color pero
+        // no se movía. Si no es una barra de zoom, se usa el arrastre del libro como antes.
+        var idx = -1;
+        try {
+          if (typeof player.moverZoom === "function")
+            idx = Number(player.moverZoom(t.eje, (e.clientX - t.ox) / t.s, (e.clientY - t.oy) / t.s, t.scx, t.scy, -1));
+        } catch (err) { idx = -1; }
+        if (idx >= 0) {
+          toques.directo = (toques.directo || 0) + 1;
+          agarre = { id: e.pointerId, lienzo: lienzo, t: performance.now(), directo: idx, eje: t.eje, ox: t.ox, oy: t.oy, s: t.s };
+          return;
+        }
+        agarre = { id: e.pointerId, lienzo: lienzo, t: performance.now() };
+        enviarPuntero(lienzo, "pointermove", t.x, t.y, e, 0, -1);   // el libro se entera de que el dedo está sobre el pulgar
+        enviarPuntero(lienzo, "pointerdown", t.x, t.y, e, 1, 0);    // lo agarra (startDrag)
+        enviarPuntero(lienzo, "pointermove", e.clientX, e.clientY, e, 1, -1); // salta adonde está el dedo
+      }, true);
+      sr.addEventListener("pointermove", function (e) {
+        if (!agarre || e.pointerId !== agarre.id || !e.isTrusted) return;
+        e.stopImmediatePropagation();
+        agarre.t = performance.now();
+        if (agarre.directo !== undefined) { moverDirecto(e.clientX, e.clientY); return; }
+        enviarPuntero(agarre.lienzo, "pointermove", e.clientX, e.clientY, e, 1, -1);
+      }, true);
+      ["pointerup", "pointercancel"].forEach(function (tipo) {
+        sr.addEventListener(tipo, function (e) {
+          if (!agarre || e.pointerId !== agarre.id || !e.isTrusted) return;
+          e.stopImmediatePropagation();
+          var lienzo = agarre.lienzo, directo = agarre.directo !== undefined;
+          if (directo && tipo === "pointerup") moverDirecto(e.clientX, e.clientY);
+          agarre = null;
+          if (!directo) enviarPuntero(lienzo, "pointerup", e.clientX, e.clientY, e, 0, 0);
+        }, true);
+      });
+      // ---------- Arrastrar el contenido de un ejercicio ampliado con un dedo (v1.9.3) ----------
+      // Con la flecha (sin lápiz ni otra herramienta de pintura), deslizar el dedo sobre el ejercicio
+      // ampliado lo mueve, como en cualquier app. El toque le llega a Ruffle como siempre; solo si el
+      // dedo se mueve más de UMBRAL px (y el libro no empezó a arrastrar algo con ese toque, p. ej. la
+      // ventana por su título) se vuelve arrastre: se le "suelta" el toque a Ruffle fuera del
+      // escenario (así no cuenta como clic en lo que quedó bajo el dedo) y el contenido sigue al dedo
+      // con player.panZoom (herramientas/parche_barras.py). Con el lápiz activo el dedo dibuja.
+      var pan = null, UMBRAL = 10, UMBRAL_PAGINA = 14, DISTANCIA_PAGINA = 50;
+      function geometria(lienzo) {
+        var r = lienzo.getBoundingClientRect(), esc = tamEscenario();
+        var s = Math.min(r.width / esc.w, r.height / esc.h);
+        return { ox: r.left + (r.width - esc.w * s) / 2, oy: r.top + (r.height - esc.h * s) / 2, s: s };
+      }
+      function llamarPan(fase, x, y) {
+        try { return Number(player.panZoom(fase, (x - pan.g.ox) / pan.g.s, (y - pan.g.oy) / pan.g.s)); } catch (err) { return -9; }
+      }
+      sr.addEventListener("pointerdown", function (e) {
+        if (e.pointerType === "mouse" || !e.isTrusted) return;
+        if (pan) {
+          // Otro dedo: mientras se arrastra no le llega al libro; si aún no empezaba, ya no se arrastra
+          if (pan.estado !== "posible") { e.stopImmediatePropagation(); return; }
+          pan = null; return;
+        }
+        if (typeof player.panZoom !== "function") return;
+        var lienzo = lienzoDe(e.target);
+        if (!lienzo) return;
+        pan = { id: e.pointerId, lienzo: lienzo, x0: e.clientX, y0: e.clientY, estado: "posible", tipo: "zoom", g: geometria(lienzo), propio: false };
+        var r = llamarPan(0, e.clientX, e.clientY);
+        if (r >= 0) return;
+        if (r === -2) { toques.panHerr++; pan = null; return; }
+        // v1.9.4: sin ejercicio ampliado, deslizar a los lados cambia de página (botones del libro).
+        // Solo sin herramienta de pintura y si los botones de página se ven.
+        var est = estadoLibro(true);
+        if (est && !est[0] && !(est[1] > 0) && est[2]) pan.tipo = "pagina";
+        else pan = null;
+      }, true);
+      sr.addEventListener("pointermove", function (e) {
+        if (!pan || e.pointerId !== pan.id || pan.propio) return;
+        if (pan.estado === "posible") {
+          var dx = e.clientX - pan.x0, dy = e.clientY - pan.y0;
+          if (pan.tipo === "pagina") {
+            if (dx * dx + dy * dy < UMBRAL_PAGINA * UMBRAL_PAGINA) return;
+            if (Math.abs(dx) < 1.5 * Math.abs(dy)) { pan = null; return; }   // vertical: no es pasar página
+            // Si el libro ya arrastra algo con este toque (startDrag) o la esquina de la página
+            // (el hojeador del libro: _bookState 2 o 5), se le deja a él
+            var est = estadoLibro(false);
+            if (!est || est[3] || est[4] === 2 || est[4] === 5) { toques.pagLibro++; pan = null; return; }
+            pan.estado = "pasando";
+          } else {
+            if (dx * dx + dy * dy < UMBRAL * UMBRAL) return;      // todavía es un toque: lo recibe el libro
+            if (llamarPan(1, pan.x0, pan.y0) < 0) { toques.panLibro++; pan = null; return; }
+            pan.estado = "moviendo";
+            toques.pan++;
+          }
+          pan.propio = true;
+          enviarPuntero(pan.lienzo, "pointermove", -400, -400, e, 1, -1);
+          enviarPuntero(pan.lienzo, "pointerup", -400, -400, e, 0, 0);
+          pan.propio = false;
+          // Al soltar, Ruffle libera el dedo (releasePointerCapture); se vuelve a capturar para que
+          // todo lo de este dedo siga llegando aquí aunque salga del escenario o de la pantalla.
+          try { pan.lienzo.setPointerCapture(pan.id); } catch (err) { }
+        }
+        e.stopImmediatePropagation();
+        ultimoMov = performance.now();
+        if (pan.estado === "pasando") return;
+        if (llamarPan(2, e.clientX, e.clientY) >= 0) toques.panMovs++;
+      }, true);
+      // Si llegan pocos pointermove, el touchmove también mueve el contenido
+      sr.addEventListener("touchmove", function (e) {
+        if (!pan || pan.estado !== "moviendo") return;
+        var t = e.changedTouches && e.changedTouches[0];
+        if (t && llamarPan(2, t.clientX, t.clientY) >= 0) { toques.panMovs++; ultimoMov = performance.now(); }
+      }, { capture: true, passive: true });
+      ["pointerup", "pointercancel"].forEach(function (tipo) {
+        sr.addEventListener(tipo, function (e) {
+          if (!pan || e.pointerId !== pan.id || pan.propio) return;
+          if (pan.estado === "moviendo") {
+            e.stopImmediatePropagation();
+            if (tipo === "pointerup") llamarPan(2, e.clientX, e.clientY);
+          } else if (pan.estado === "pasando") {
+            e.stopImmediatePropagation();
+            var dx = e.clientX - pan.x0;
+            if (tipo === "pointerup" && Math.abs(dx) >= DISTANCIA_PAGINA) {
+              var ok = 0;
+              try { ok = Number(player.pasarPagina(dx < 0 ? 1 : -1)); } catch (err) { ok = 0; }
+              if (ok) toques.paginas++;
+            }
+          }
+          pan = null;
+        }, true);
+        // Respaldo: si el dedo se levanta donde el evento ya no pasa por el reproductor, igual se
+        // termina el arrastre (si no, los toques siguientes quedaban bloqueados)
+        window.addEventListener(tipo, function (e) { if (pan && e.pointerId === pan.id && !pan.propio) pan = null; });
+      });
+
+      var aviso = sr.getElementById("hardware-acceleration-modal");
+      if (aviso && window.MutationObserver) {
+        new MutationObserver(function () {
+          if (!aviso.classList.contains("hidden")) { motorInfo.aviso = true; aviso.classList.add("hidden"); }
+        }).observe(aviso, { attributes: true, attributeFilter: ["class"] });
+      }
+      // Con el dedo no existe "pasar el puntero por encima": Ruffle recibe directo el toque y no
+      // avisa al libro que el puntero entró (onRollOver). El libro solo deja dibujar con el lápiz,
+      // el marcatextos, etc. (y mover algunas barras) si antes recibió ese aviso. Así que, justo
+      // antes de cada toque, se le manda a Ruffle un movimiento del puntero a ese mismo punto.
+      sr.addEventListener("pointerdown", function (e) {
+        if (e.pointerType === "mouse" || !e.isTrusted) return;
+        if (!e.target || e.target.tagName !== "CANVAS") { if (toques.otro.length < 60) toques.otro += (e.target && (e.target.id || e.target.tagName)) + " "; }
+        var lienzo = lienzoDe(e.target);
+        if (!lienzo) return;
+        toques.hover++;
+        try {
+          lienzo.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true, cancelable: true, composed: true,
+            clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY,
+            pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: e.isPrimary, buttons: 0, button: -1
+          }));
+        } catch (err) { }
+      }, true);
+      // Respaldo: si el celular manda el movimiento del dedo (touchmove) pero no el del puntero
+      // (pointermove), se le pasa a Ruffle como movimiento del puntero, para que se pueda dibujar
+      // y arrastrar las barras.
+      var activo = null, ultimoMov = 0;
+      sr.addEventListener("pointerdown", function (e) { if (e.isTrusted && e.pointerType !== "mouse") { activo = { id: e.pointerId, lienzo: lienzoDe(e.target), tipo: e.pointerType }; ultimoMov = performance.now(); } }, true);
+      sr.addEventListener("pointermove", function (e) { if (e.isTrusted && activo && e.pointerId === activo.id) ultimoMov = performance.now(); }, true);
+      ["pointerup", "pointercancel"].forEach(function (t) { sr.addEventListener(t, function (e) { if (activo && e.pointerId === activo.id) activo = null; }, true); });
+      sr.addEventListener("touchmove", function (e) {
+        toques.tmovs++;
+        if (!activo || !activo.lienzo || activo.lienzo.tagName !== "CANVAS") return;
+        // Los eventos del puntero llegan antes que los del dedo; si no llegó ninguno en este cuadro, se repone
+        if (performance.now() - ultimoMov < 40) return;
+        var t = e.changedTouches && e.changedTouches[0];
+        if (!t) return;
+        toques.puestos++;
+        ultimoMov = performance.now();
+        try {
+          activo.lienzo.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true, cancelable: true, composed: true,
+            clientX: t.clientX, clientY: t.clientY, screenX: t.screenX, screenY: t.screenY,
+            pointerId: activo.id, pointerType: activo.tipo, isPrimary: true, buttons: 1, button: -1
+          }));
+        } catch (err) { }
+      }, { capture: true, passive: true });
+      // Si el sistema cancela un toque (pointercancel), Ruffle no se entera y se queda con el
+      // "botón apretado": los siguientes toques ya no funcionan. Se le avisa como si se soltara.
+      sr.addEventListener("pointercancel", function (e) {
+        var lienzo = e.target;
+        if (!lienzo || lienzo.tagName !== "CANVAS") return;
+        try {
+          lienzo.dispatchEvent(new PointerEvent("pointerup", {
+            bubbles: true, cancelable: true, composed: true,
+            clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY,
+            pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: e.isPrimary, buttons: 0, button: 0
+          }));
+        } catch (err) { }
+      }, true);
+      // Si el dibujo por hardware se pierde a media sesión, la imagen se congela y el libro deja
+      // de responder: se vuelve a abrir con el dibujo canvas.
+      sr.addEventListener("webglcontextlost", function () {
+        motorInfo.perdidas++;
+        if (saliendo) return;
+        if (!memGPU.alPerder) memGPU.alPerder = memGPU.actual;
+        try { sessionStorage.setItem("perdioGPU", String(Date.now())); } catch (e) { }
+        guardar("webgl_perdidas", perdidasEquipo + 1);
+        setTimeout(function () { if (!saliendo) location.reload(); }, 300);
+      }, true);
+    })();
+
+    // Órdenes que el libro le mandaba al reproductor de escritorio
+    var manejador = function (comando) {
+      comando = String(comando).toLowerCase();
+      if (comando === "quit") { salir(); return true; }
+      return comando === "fullscreen" || comando === "allowscale" || comando === "showmenu" || comando === "trapallkeys";
+    };
+    try {
+      if (typeof api.addFSCommandHandler === "function") api.addFSCommandHandler(manejador);
+      else player.onFSCommand = manejador;
+    } catch (e) { }
+
+
+    if (precarga) {
+      // Sin sonido: el volumen solo se puede poner cuando ya existe la instancia de Ruffle
+      var silenciar = function () { try { api.volume = 0; } catch (e) { } };
+      player.addEventListener("loadedmetadata", silenciar);
+      var vecesSilencio = 0, silencio = setInterval(function () { silenciar(); if (++vecesSilencio > 40) clearInterval(silencio); }, 100);
+      player.addEventListener("loadeddata", function () { silenciar(); setTimeout(terminarPrecarga, 3500); });
+      setTimeout(terminarPrecarga, 15000);
+    } else {
+      player.addEventListener("loadeddata", function () { setTimeout(ocultarCarga, 350); });
+      setTimeout(ocultarCarga, 20000);
+    }
+
+    // La app pone la pantalla horizontal al abrir un libro (la biblioteca gira con el teléfono). Si
+    // el giro aún no termina, se espera: así Ruffle arranca ya con el tamaño final y no tiene que
+    // rehacer su dibujo al girar.
+    esperarHorizontal(function () { esperarGPU(function (r) {
+      var opciones = {
+        url: BASE + "browser.swf",
+        parameters: "appNAV=true",
+        base: BASE,
+        allowScriptAccess: true
+      };
+      if (r.elegido) motorInfo.forzado = modoDibujo === "canvas" ? "elegido" : "WebGL perdido antes en este equipo";
+      else if (!r.ok) motorInfo.forzado = perdioGPUHacePoco() ? "WebGL perdido" : "sin WebGL";
+      else if (r.software) motorInfo.forzado = "WebGL por software";
+      if (motorInfo.forzado) {
+        opciones.preferredRenderer = "canvas";
+      } else {
+        // Con WebGL se usa el motor wgpu (el único de Ruffle que copia imágenes y aplica filtros)
+        opciones.preferredRenderer = "wgpu-webgl";
+      }
+      var promesa = api.load(opciones);
+      if (promesa && promesa.catch) {
+        promesa.catch(function (e) {
+          mostrarError(String((e && e.message) || e));
+        });
+      }
+    }); });
+  })();
+</script>
+</body>
+</html>
